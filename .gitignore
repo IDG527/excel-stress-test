@@ -1,0 +1,6 @@
+# Workbooks hold personal claim data - keep them out of git
+*.xlsx
+*.xlsm
+*.xlsb
+~$*
+__pycache__/
