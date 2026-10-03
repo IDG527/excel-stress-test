@@ -1,7 +1,8 @@
 Attribute VB_Name = "OvertimeStressTest"
 '==============================================================================
 '  OVERTIME FORM STRESS TEST
-'  Target: OVERTIME_FORM_2026_MM__NAME__rev_1.2_QUERY_LINKED.xlsx
+'  Target: OVERTIME_FORM_MONTH_MANUAL_INPUT_CLEAN_1.xlsx (month entry in K5, input pop-ups)
+'          Also runs against the earlier rev 1.2 QUERY_LINKED form.
 '==============================================================================
 '  HOW TO RUN
 '    1. Open a new blank workbook, press Alt+F11, File > Import File... and
@@ -31,6 +32,7 @@ Private Const REFRESH_PAUSE_MS As Long = 1000     ' pause between refreshes, to 
 Private Const FUZZ_ITERATIONS As Long = 200       ' random full-form fills, 60 rows each
 Private Const RECALC_ITERATIONS As Long = 50      ' forced full recalculations of a full form
 Private Const OFFICE_HOURS_FUZZ As Long = 10      ' random fills per alternative office-hours setting
+Private Const ROLLOVER_FUZZ As Long = 10          ' random fills per simulated future holiday year
 Private Const RANDOM_SEED As Long = 20260929      ' same seed = same random inputs every run
 Private Const FORM_PASSWORD As String = ""        ' sheet password of 'Engineer Name', if it has one
 Private Const KEEP_TEST_COPY As Boolean = False   ' True keeps the scratch copy for inspection
@@ -54,6 +56,8 @@ Private Const TOTAL_ROW As Long = 71
 Private Const NROWS As Long = 60
 Private Const DEFAULT_Q1 As Long = 480            ' 08:00 in minutes
 Private Const DEFAULT_Q2 As Long = 1050           ' 17:30 in minutes
+Private Const MONTH_CELL As String = "K5"         ' claim month typed by the engineer, e.g. OCTOBER 2026
+Private Const ENGINE_MONTH_CELL As String = "J6"  ' engine cell the date rule reads the claim month from
 
 ' ---------- output sheets ----------
 Private Const OUT_SUMMARY As String = "ST_Summary"
@@ -101,6 +105,8 @@ Private mSourcePath As String
 Private mQueryFingerprint As String
 Private mEngFormulaH As String          ' engine H11 / I11 formulas, captured for Copilot
 Private mEngFormulaI As String
+Private mPopups() As String               ' section | cell | pop-up title | pop-up text | error title | error text
+Private mPopupCount As Long
 
 '==============================================================================
 '  ENTRY POINTS
@@ -157,12 +163,14 @@ Public Sub RunOvertimeStressTest()
     Progress "as-found entries":       TestBaseline baseline
     Progress "Power Query refresh":    TestRefreshStress baseline
     Progress "holiday table content":  TestHolidayOutput
+    Progress "pop-ups + month entry":  TestPopups
     Progress "known answers":          TestKnownAnswers
     Progress "known limitations":      TestLimitations
     Progress "bad pasted input":       TestRobustness
     Progress "random fills":           SeedRandom: TestFuzz FUZZ_ITERATIONS, "Z", "Random fills"
     Progress "capacity + performance": TestCapacity
     Progress "office hours variations": TestOfficeHours
+    Progress "year rollover":          TestYearRollover
     Progress "your scenarios":         TestScenarioSheet
 
 Finish:
@@ -277,11 +285,12 @@ Private Sub TestStructure()
         LogResult "S03", cat, "Form sheet is protected", "PASS", "protected", "protected"
     Else
         LogResult "S03", cat, "Form sheet is protected", "WARN", "protected", "not protected", _
-                  "Users can overwrite the Day / Public holiday / Travel / Work formulas."
+                  "Users can type over the Day / Public holiday / Travel / Work formulas and the totals. " & _
+                  "Protect the sheet again (the input cells are already unlocked)."
     End If
 
     bad = ""
-    For Each v In Array("A11:A70", "D11:G70", "J11:L70", "B5", "I5", "K5")
+    For Each v In Array("A11:A70", "D11:G70", "J11:L70", "B5", "I5", MONTH_CELL, "C77")
         lockedState = mForm.Range(v).Locked
         If IsNull(lockedState) Then
             bad = bad & " " & v & "(mixed)"
@@ -322,7 +331,7 @@ Private Sub TestStructure()
                     "C9", "PUBLIC HOLIDAY (Y / N)", "D9", "TRAVEL - WORK - TRAVEL", "H9", "OVERTIME RATE", _
                     "J9", "LOCAL / OVERSEAS", "K9", "Project ID", "L9", "VESSEL NAME", "D10", "From", _
                     "E10", "Until / From", "F10", "Until / From", "G10", "Until", "H10", "Travel", "I10", "Work", _
-                    "J71", "TOTAL")
+                    "J71", "TOTAL", "A77", "Submitted By:")
     bad = ""
     For i = LBound(headers) To UBound(headers) Step 2
         If StrComp(Squash(CStr(mForm.Range(headers(i)).Value)), Squash(CStr(headers(i + 1))), vbTextCompare) <> 0 Then
@@ -339,7 +348,11 @@ Private Sub TestStructure()
     bad = ""
     If Len(Trim$(CStr(mForm.Range("B5").Value))) = 0 Then bad = bad & " NAME (B5)"
     If Len(Trim$(CStr(mForm.Range("I5").Value))) = 0 Then bad = bad & " ID (I5)"
-    If Len(Trim$(CStr(mForm.Range("K5").Value))) = 0 Then bad = bad & " MONTH (K5)"
+    If Len(Trim$(CStr(mForm.Range(MONTH_CELL).Value))) = 0 Then
+        bad = bad & " MONTH (" & MONTH_CELL & ")"
+    ElseIf ParseMonthText(CStr(mForm.Range(MONTH_CELL).Value)) = 0 Then
+        bad = bad & " MONTH (" & MONTH_CELL & ") not in the form 'OCTOBER 2026': '" & mForm.Range(MONTH_CELL).Value & "'"
+    End If
     If Len(bad) = 0 Then
         LogResult "S08", cat, "Claim header filled in (name, ID, month)", "PASS"
     Else
@@ -362,7 +375,8 @@ Private Sub TestStructure()
     End If
 
     bad = ""
-    If ValidationType(mForm.Range("A11")) <> xlValidateDate Or ValidationType(mForm.Range("A70")) <> xlValidateDate Then bad = bad & " A11:A70(date)"
+    If Not (ValidationType(mForm.Range("A11")) = xlValidateDate Or ValidationType(mForm.Range("A11")) = xlValidateCustom) Or _
+       Not (ValidationType(mForm.Range("A70")) = xlValidateDate Or ValidationType(mForm.Range("A70")) = xlValidateCustom) Then bad = bad & " A11:A70(date)"
     For Each v In Array("D", "E", "F", "G")
         If ValidationType(mForm.Range(v & "11")) <> xlValidateCustom Or ValidationType(mForm.Range(v & "70")) <> xlValidateCustom Then bad = bad & " " & v & "11:" & v & "70(time)"
     Next v
@@ -373,7 +387,20 @@ Private Sub TestStructure()
         LogResult "S11", cat, "Data validation on date, time and LOCAL/OVERSEAS columns (rows 11-70)", "WARN", , "missing:" & bad
     End If
     LogResult "S11b", cat, "Data validation is bypassed by paste / VBA", "INFO", , , _
-              "Excel validation only checks typed entries. Pasted values are accepted - see the R tests for what that does."
+              "Excel validation only checks typed entries. Pasted values are accepted - see the P tests for what that does."
+
+    v = SheetByName(mWb, SH_HOL).Visible
+    LogResult "S19", cat, "Holiday list sheet visibility", "INFO", , IIf(v = xlSheetVisible, "visible", "hidden"), _
+              IIf(v = xlSheetVisible, "Engineers can see the holiday list.", _
+                  "'" & SH_HOL & "' is hidden; engineers see only the Y/N column. The lookup still works (H15).")
+    On Error Resume Next
+    v = Empty
+    v = mWb.ForceFullCalculation
+    On Error GoTo Boom
+    If VarType(v) = vbBoolean Then
+        LogResult "S20", cat, "Workbook forces a full recalculation on every change", "INFO", , CStr(v), _
+                  IIf(v, "Every edit recalculates all 600+ formulas; C04 shows what that costs.", "")
+    End If
 
     If mForm.Range("D11").FormatConditions.Count > 0 And mForm.Range("G70").FormatConditions.Count > 0 Then
         LogResult "S12", cat, "Out-of-range time highlight (conditional format) on D11:G70", "PASS"
@@ -619,11 +646,13 @@ Private Sub TestBaseline(ByRef base As Variant)
     Dim cat As String, i As Long, c As Long, t(0 To 3) As Long, ds As Double, e As OTResult
     Dim v As Variant, used As Long, bad As Long, badList As String, notes As String
     Dim months As String, yrs As String, unsorted As Boolean, lastD As Double, dupes As String
+    Dim claimMonth As Double, outside As String
     Dim noTimes As String, noDate As String, badJ As String, numK As String, anyTime As Boolean, skip As Boolean
     cat = "As-found entries"
     On Error GoTo Boom
 
     v = mForm.Range(mForm.Cells(FIRST_ROW, 1), mForm.Cells(LAST_ROW, 12)).Value
+    claimMonth = ParseMonthText(CStr(mForm.Range(MONTH_CELL).Value))
     For i = 1 To NROWS
         skip = False
         anyTime = False
@@ -658,6 +687,9 @@ Private Sub TestBaseline(ByRef base As Variant)
         If ds = 0 And anyTime And Not skip Then noDate = noDate & " " & (i + 10)
         If ds <> 0 Then
             If InStr(months, Format$(CDate(ds), "yyyy-mm")) = 0 Then months = months & " " & Format$(CDate(ds), "yyyy-mm")
+            If claimMonth > 0 Then
+                If Not InClaimMonth(ds, claimMonth) Then outside = outside & " A" & (i + 10) & "=" & Format$(CDate(ds), "d-mmm-yy")
+            End If
             If Year(CDate(ds)) <> mHolYear And InStr(yrs, CStr(Year(CDate(ds)))) = 0 Then yrs = yrs & " " & Year(CDate(ds))
             If ds < lastD Then unsorted = True
             If ds = lastD Then dupes = dupes & " " & Format$(CDate(ds), "d-mmm")
@@ -687,7 +719,12 @@ Private Sub TestBaseline(ByRef base As Variant)
     LogResult "B02", cat, "Totals of the entries saved in the file", "INFO", , _
               "Travel " & ToText(mForm.Range("H71").Value) & " h, Work " & ToText(mForm.Range("I71").Value) & " h, Total " & ToText(mForm.Range("K71").Value) & " h"
     If Len(months) > 0 Then
-        LogResult "B03", cat, "All dates are in one claim month", IIf(InStr(2, Trim$(months), " ") = 0, "PASS", "WARN"), "1 month", Trim$(months)
+        If claimMonth > 0 Then
+            LogResult "B03", cat, "All dates are in the claim month " & mForm.Range(MONTH_CELL).Value & " (or the last day before it)", _
+                      IIf(Len(outside) = 0, "PASS", "WARN"), "all inside", IIf(Len(outside) = 0, "all inside", "outside:" & outside)
+        Else
+            LogResult "B03", cat, "All dates are in one claim month", IIf(InStr(2, Trim$(months), " ") = 0, "PASS", "WARN"), "1 month", Trim$(months)
+        End If
     End If
     If Len(yrs) > 0 Then
         LogResult "B04", cat, "All dates are in the holiday table's year (" & mHolYear & ")", "WARN", CStr(mHolYear), Trim$(yrs), _
@@ -740,7 +777,7 @@ Private Sub TestRefreshStress(ByRef base As Variant)
             For r = 1 To NROWS
                 If VarType(base(r, 1)) = vbDouble Then
                     ds = base(r, 1)
-                    expPH = IIf(IsHolidayExact(ds), "Y", "N")
+                    expPH = IIf(IsHoliday(ds), "Y", "N")
                     If IsError(v(r, 3)) Then
                         wrongPH = wrongPH + 1
                     ElseIf CStr(v(r, 3)) <> expPH Then
@@ -919,7 +956,7 @@ Private Sub TestHolidayOutput()
         If k < NROWS Then
             k = k + 1: aA(k, 1) = CDate(v(i, 1)): expected(k) = "Y"
         End If
-        If k < NROWS And Not IsHolidayExact(v(i, 1) + 1) Then
+        If k < NROWS And Not IsHoliday(v(i, 1) + 1) Then
             k = k + 1: aA(k, 1) = CDate(v(i, 1) + 1): expected(k) = "N"
         End If
     Next i
@@ -1461,6 +1498,396 @@ Boom:
 End Sub
 
 '==============================================================================
+'  V - POP-UPS (input messages), ERROR ALERTS AND THE MONTH ENTRY IN K5
+'  Validation.Value asks Excel whether the value now in a cell passes that
+'  cell's rule - the same answer the engineer gets when typing it.
+'==============================================================================
+Private Sub TestPopups()
+    Dim cat As String, sections As Variant, i As Long, c As Range, bad As String, info As String
+    Dim oldK5 As Variant, cases As Variant, wrong As String, loose As String, okNow As Variant
+    Dim j6 As Variant, lf As String
+    cat = "Pop-ups and validation"
+    On Error GoTo Boom
+    oldK5 = mForm.Range(MONTH_CELL).Value
+    mPopupCount = 0
+    ReDim mPopups(1 To 30, 1 To 6)
+
+    ' V01 every section the engineer fills in shows a pop-up
+    sections = Array("B5", "Name", "I5", "Employee ID", MONTH_CELL, "Month", "A11", "Date (row 11)", "A70", "Date (row 70)", _
+                     "D11", "From", "E11", "Until / From (2nd)", "F11", "Until / From (3rd)", "G11", "Until", _
+                     "D70", "From (row 70)", "G70", "Until (row 70)", "C77", "Submitted by")
+    bad = ""
+    For i = 0 To UBound(sections) Step 2
+        Set c = mForm.Range(sections(i))
+        If VTrue(VProp(c, "ShowInput")) And Len(NzStr(VProp(c, "InputMessage"))) > 0 Then
+            AddPopup CStr(sections(i + 1)), c
+        Else
+            bad = bad & " " & sections(i + 1) & " (" & sections(i) & ");"
+        End If
+    Next i
+    LogResult "V01", cat, "Input pop-up on every section the engineer fills in", IIf(Len(bad) = 0, "PASS", "WARN"), _
+              "name, ID, month, dates, times, submitted by", IIf(Len(bad) = 0, (UBound(sections) + 1) \ 2 & " cells checked", "no pop-up:" & bad)
+
+    ' V02 sections still without a pop-up
+    bad = "": info = ""
+    For Each c In mForm.Range("J11,K11,L11").Cells
+        If Not (VTrue(VProp(c, "ShowInput")) And Len(NzStr(VProp(c, "InputMessage"))) > 0) Then bad = bad & " " & c.Address(False, False)
+    Next c
+    If Not VTrue(VProp(mForm.Range("J11"), "ShowError")) Then
+        info = "LOCAL / OVERSEAS (J) has its error alert switched off, so anything typed there is accepted. "
+    End If
+    LogResult "V02", cat, "LOCAL/OVERSEAS, Project ID and Vessel columns have pop-ups", _
+              IIf(Len(info) > 0, "WARN", IIf(Len(bad) = 0, "PASS", "INFO")), "pop-ups on J, K, L", _
+              IIf(Len(bad) = 0, "all present", "no pop-up on" & bad), info & IIf(Len(bad) = 0, "", "Optional: a pop-up such as 'Project ID as on the job sheet, e.g. 100084981.002'.")
+
+    ' V03 the cells with a rule stop wrong entries and say why
+    bad = ""
+    For Each c In mForm.Range("A11,D11,E11,F11,G11," & MONTH_CELL).Cells
+        If Not VTrue(VProp(c, "ShowError")) Then
+            bad = bad & " " & c.Address(False, False) & "(alert off)"
+        ElseIf NzStr(VProp(c, "AlertStyle")) <> CStr(xlValidAlertStop) Then
+            bad = bad & " " & c.Address(False, False) & "(warning only, can be overridden)"
+        ElseIf Len(NzStr(VProp(c, "ErrorMessage"))) = 0 Then
+            bad = bad & " " & c.Address(False, False) & "(no message)"
+        End If
+    Next c
+    LogResult "V03", cat, "Date, time and month rules block wrong entries with an explanation", IIf(Len(bad) = 0, "PASS", "WARN"), _
+              "Stop alert + message", IIf(Len(bad) = 0, "6 cells OK", bad)
+
+    ' V04 month entry accepts only FULL MONTH NAME + 4-digit year in capitals
+    cases = Array("OCTOBER 2026", True, "MAY 2026", True, "JANUARY 2027", True, "FEBRUARY 2028", True, _
+                  "October 2026", False, "october 2026", False, "Oct 2026", False, "OCT 2026", False, "OCTOBER 26", False, _
+                  "2026 OCTOBER", False, "OCTOBER  2026", False, " OCTOBER 2026", False, "OCTOBER 2026 ", False, _
+                  "SEPT 2026", False, "OCTOBER-2026", False, "10/2026", False)
+    wrong = ""
+    For i = 0 To UBound(cases) Step 2
+        mForm.Range(MONTH_CELL).Value = cases(i)
+        okNow = ValidOK(mForm.Range(MONTH_CELL))
+        If IsNull(okNow) Then
+            wrong = wrong & " '" & cases(i) & "'=error;"
+        ElseIf okNow <> cases(i + 1) Then
+            wrong = wrong & " '" & cases(i) & "' " & IIf(okNow, "accepted", "rejected") & ";"
+        End If
+    Next i
+    LogResult "V04", cat, "Month entry (" & MONTH_CELL & ") accepts 'OCTOBER 2026' style only", IIf(Len(wrong) = 0, "PASS", "FAIL"), _
+              "4 accepted, 12 rejected", IIf(Len(wrong) = 0, "4 accepted, 12 rejected", "wrong:" & wrong)
+
+    ' V05 years that pass the 4-digit check but make no sense
+    loose = ""
+    For Each okNow In Array("OCTOBER 0000", "OCTOBER 1900", "OCTOBER 9999", "OCTOBER -202")
+        mForm.Range(MONTH_CELL).Value = okNow
+        If VTrue(ValidOK(mForm.Range(MONTH_CELL))) Then loose = loose & " '" & okNow & "'"
+    Next okNow
+    LogResult "V05", cat, "Month entry rejects impossible years", IIf(Len(loose) = 0, "PASS", "WARN"), "rejected", _
+              IIf(Len(loose) = 0, "rejected", "accepted:" & loose), _
+              IIf(Len(loose) = 0, "", "The rule checks for four characters, not a sensible year. A typo like OCTOBER 2062 also passes. " & _
+                  "Adding AND(VALUE(year)>=2020, VALUE(year)<=2099) would close this.")
+
+    ' V06 the engine turns K5 into the claim month the date rule uses
+    mForm.Range(MONTH_CELL).Value = "OCTOBER 2026"
+    Recalc
+    j6 = mEng.Range(ENGINE_MONTH_CELL).Value
+    If IsError(j6) Or IsEmpty(j6) Or Not IsNumeric(j6) Or VarType(j6) = vbString Then
+        LogResult "V06", cat, "Engine " & ENGINE_MONTH_CELL & " holds the month typed in " & MONTH_CELL, "FAIL", _
+                  "1-Oct-2026 for 'OCTOBER 2026'", ToText(j6) & IIf(mEng.Range(ENGINE_MONTH_CELL).HasFormula, "", " (no formula)"), _
+                  "The date rule on A11:A70 compares every date with '" & SH_ENGINE & "'!" & ENGINE_MONTH_CELL & _
+                  ". While it is empty, Excel rejects EVERY date an engineer types (see V07). Suggested formula for " & ENGINE_MONTH_CELL & ": " & _
+                  "=IFERROR(DATE(VALUE(RIGHT('Engineer Name'!K5,4)),MATCH(LEFT('Engineer Name'!K5,FIND("" "",'Engineer Name'!K5)-1)," & _
+                  "{""JANUARY"",""FEBRUARY"",""MARCH"",""APRIL"",""MAY"",""JUNE"",""JULY"",""AUGUST"",""SEPTEMBER"",""OCTOBER"",""NOVEMBER"",""DECEMBER""},0),1),"""")"
+    ElseIf Year(CDate(j6)) = 2026 And Month(CDate(j6)) = 10 Then
+        LogResult "V06", cat, "Engine " & ENGINE_MONTH_CELL & " holds the month typed in " & MONTH_CELL, "PASS", "Oct 2026", Format$(CDate(j6), "d-mmm-yyyy")
+    Else
+        LogResult "V06", cat, "Engine " & ENGINE_MONTH_CELL & " holds the month typed in " & MONTH_CELL, "FAIL", "Oct 2026", Format$(CDate(j6), "d-mmm-yyyy")
+    End If
+
+    ' V07 date rule: only the claim month, plus the last day of the month before (overnight jobs)
+    cases = Array("OCTOBER 2026", DateSerial(2026, 10, 1), True, "OCTOBER 2026", DateSerial(2026, 10, 15), True, _
+                  "OCTOBER 2026", DateSerial(2026, 10, 31), True, "OCTOBER 2026", DateSerial(2026, 9, 30), True, _
+                  "OCTOBER 2026", DateSerial(2026, 9, 29), False, "OCTOBER 2026", DateSerial(2026, 11, 1), False, _
+                  "OCTOBER 2026", DateSerial(2025, 10, 15), False, _
+                  "JANUARY 2027", DateSerial(2026, 12, 31), True, "JANUARY 2027", DateSerial(2027, 1, 1), True, _
+                  "JANUARY 2027", DateSerial(2026, 12, 30), False, _
+                  "MARCH 2028", DateSerial(2028, 2, 29), True, "MARCH 2027", DateSerial(2027, 2, 28), True, _
+                  "MARCH 2027", DateSerial(2027, 2, 27), False)
+    wrong = ""
+    ClearInputs
+    For i = 0 To UBound(cases) Step 3
+        mForm.Range(MONTH_CELL).Value = cases(i)
+        mForm.Range("A11").Value = cases(i + 1)
+        mForm.Range("A70").Value = cases(i + 1)
+        Recalc
+        okNow = ValidOK(mForm.Range("A11"))
+        If IsNull(okNow) Then
+            wrong = wrong & " " & cases(i) & "/" & Format$(cases(i + 1), "d-mmm-yy") & "=error;"
+        ElseIf okNow <> cases(i + 2) Or VTrue(ValidOK(mForm.Range("A70"))) <> okNow Then
+            wrong = wrong & " " & cases(i) & "/" & Format$(cases(i + 1), "d-mmm-yy") & " " & IIf(okNow, "accepted", "rejected") & ";"
+        End If
+    Next i
+    LogResult "V07", cat, "Date column accepts the claim month and the day before it, nothing else", IIf(Len(wrong) = 0, "PASS", "FAIL"), _
+              "8 accepted, 5 rejected (incl. Dec->Jan and leap year)", IIf(Len(wrong) = 0, "all 13 correct", "wrong:" & wrong)
+
+    ' V08 time rules (From, Until/From, Until/From, Until)
+    wrong = ""
+    ClearInputs
+    TimeRule wrong, "D", Array(Empty, Empty, Empty, Empty), "08:00", True
+    TimeRule wrong, "D", Array(Empty, Empty, Empty, Empty), "00:00", True
+    TimeRule wrong, "D", Array(Empty, Empty, Empty, Empty), 25# / 24#, False
+    TimeRule wrong, "D", Array(Empty, Empty, Empty, Empty), -0.1, False
+    TimeRule wrong, "D", Array(Empty, Empty, Empty, Empty), "0800", False
+    TimeRule wrong, "E", Array("09:00", Empty, Empty, Empty), "10:00", True
+    TimeRule wrong, "E", Array("09:00", Empty, Empty, Empty), "08:00", False
+    TimeRule wrong, "E", Array("21:00", Empty, Empty, Empty), "00:00", True
+    TimeRule wrong, "E", Array(Empty, Empty, Empty, Empty), "05:00", True
+    TimeRule wrong, "F", Array("09:00", "10:00", Empty, Empty), "09:30", False
+    TimeRule wrong, "F", Array("09:00", "10:00", Empty, Empty), "11:00", True
+    TimeRule wrong, "F", Array("20:00", "22:00", Empty, Empty), "00:00", True
+    TimeRule wrong, "G", Array("09:00", "10:00", "11:00", Empty), "10:30", False
+    TimeRule wrong, "G", Array("09:00", "10:00", "11:00", Empty), "12:00", True
+    TimeRule wrong, "G", Array("16:00", "20:30", "22:30", Empty), "00:00", True
+    LogResult "V08", cat, "Time columns accept real times in order, 00:00 as midnight, and reject the rest", _
+              IIf(Len(wrong) = 0, "PASS", "FAIL"), "15 cases", IIf(Len(wrong) = 0, "all 15 correct", "wrong:" & wrong)
+    LogResult "V09", cat, "Times after midnight other than 00:00 (e.g. 21:00 -> 02:00) are blocked when typed", "INFO", , _
+              "E=02:00 after D=21:00 rejected", "The rule only lets 00:00 go 'backwards'. An engineer working 21:00-02:00 " & _
+              "must type 00:00 and carry on in a new row - the pop-up text says so. The formulas themselves would handle 02:00."
+
+    ClearInputs
+    mForm.Range(MONTH_CELL).Value = oldK5
+    Recalc
+    Exit Sub
+Boom:
+    LogCrash "V99", cat
+    On Error Resume Next
+    ClearInputs
+    mForm.Range(MONTH_CELL).Value = oldK5
+End Sub
+
+' Fills D:G of row 11 with the "before" values, puts testValue in column col and checks the rule's answer.
+Private Sub TimeRule(ByRef wrong As String, ByVal col As String, ByVal before As Variant, ByVal testValue As Variant, ByVal expectOk As Boolean)
+    Dim i As Long, okNow As Variant, shown As String
+    For i = 0 To 3
+        If IsEmpty(before(i)) Then mForm.Cells(FIRST_ROW, 4 + i).Value = Empty Else mForm.Cells(FIRST_ROW, 4 + i).Value = HM(CStr(before(i)))
+    Next i
+    If VarType(testValue) = vbString Then
+        If InStr(testValue, ":") > 0 Then
+            mForm.Range(col & FIRST_ROW).Value = HM(CStr(testValue))
+        Else
+            mForm.Range(col & FIRST_ROW).Value = "'" & testValue        ' typed without a colon, e.g. 0800
+        End If
+        shown = CStr(testValue)
+    Else
+        mForm.Range(col & FIRST_ROW).Value = testValue
+        shown = Format$(testValue, "0.000")
+    End If
+    okNow = ValidOK(mForm.Range(col & FIRST_ROW))
+    If IsNull(okNow) Then
+        wrong = wrong & " " & col & "=" & shown & " error;"
+    ElseIf okNow <> expectOk Then
+        wrong = wrong & " " & col & "=" & shown & IIf(okNow, " accepted;", " rejected;")
+    End If
+    mForm.Range(mForm.Cells(FIRST_ROW, 4), mForm.Cells(FIRST_ROW, 7)).ClearContents
+End Sub
+
+'==============================================================================
+'  Y - YEAR ROLLOVER (simulated on the copy; the query itself is not touched)
+'  The holiday rows of the copy's table are replaced by next year's and the
+'  year after's fixed-date holidays - what a refresh in that year would load -
+'  then put back exactly as they were.
+'==============================================================================
+Private Sub TestYearRollover()
+    Dim cat As String, lo As ListObject, orig As Variant, origSig As String, baseYear As Long, y As Long, idx As Long
+    Dim oldK5 As Variant, d As Date, g As Variant, n As Long, i As Long, r As Long, k As Long, bad As String
+    Dim t(0 To 3) As Long, e As OTResult, v As Variant, dates() As Double, expPH() As String
+    cat = "Year rollover"
+    On Error GoTo Boom
+    Set lo = GetHolidayTable()
+    If lo Is Nothing Then
+        LogResult "Y00", cat, "Year rollover", "SKIP", , , "No holiday table."
+        Exit Sub
+    End If
+    If lo.DataBodyRange Is Nothing Then
+        LogResult "Y00", cat, "Year rollover", "SKIP", , , "Holiday table is empty."
+        Exit Sub
+    End If
+    orig = lo.DataBodyRange.Value
+    origSig = TableSignature()
+    baseYear = mHolYear
+    oldK5 = mForm.Range(MONTH_CELL).Value
+
+    ' Y01 the first days of a new year, before the query has loaded it
+    y = baseYear + 1
+    d = DateSerial(y, 1, 1)
+    ClearInputs
+    SetClaimMonth y, 1
+    PutRow FIRST_ROW, d, "08:00", "09:00", "17:00", "18:00"
+    Recalc
+    g = mForm.Range("C11").Value
+    LogResult "Y01", cat, "New Year's Day " & y & " while the table still holds " & baseYear, _
+              IIf(ToText(g) = "Y", "PASS", "WARN"), "Y", ToText(g), _
+              "Until the query refreshes in " & y & " - and MOM has published " & y & " - new-year holidays get normal rates. " & _
+              "In early January the query stops with 'No public holiday records were found' and the old year stays loaded."
+
+    t(0) = 480: t(1) = 540: t(2) = 1020: t(3) = 1080
+    For y = baseYear + 1 To baseYear + 2
+        idx = y - baseYear
+        Progress "year rollover " & y
+        WriteSyntheticHolidays lo, y
+        Recalc
+        LoadHolidays
+
+        ' Y?1 each holiday of the new year is Y with full-day hours, the day after is N
+        ClearInputs
+        ReDim dates(1 To NROWS)
+        ReDim expPH(1 To NROWS)
+        k = 0
+        For i = 1 To mHolCount
+            If i = 1 Or mHol(i) <> mHol(MaxL(i - 1, 1)) Then          ' skip the padding repeats
+                If k < NROWS - 1 Then
+                    k = k + 1: dates(k) = mHol(i): expPH(k) = "Y"
+                    If Not IsHoliday(mHol(i) + 1) Then k = k + 1: dates(k) = mHol(i) + 1: expPH(k) = "N"
+                End If
+            End If
+        Next i
+        For r = 1 To k
+            PutRow FIRST_ROW + r - 1, CDate(dates(r)), "08:00", "09:00", "17:00", "18:00"
+        Next r
+        SetClaimMonth y, 1
+        Recalc
+        v = mForm.Range(mForm.Cells(FIRST_ROW, 1), mForm.Cells(LAST_ROW, 12)).Value
+        bad = ""
+        For r = 1 To k
+            e = Oracle(dates(r), t, mQ1, mQ2)
+            If ToText(v(r, 3)) <> expPH(r) Or Not RowMatches(e, v(r, 2), v(r, 3), v(r, 8), v(r, 9), dates(r)) Then
+                bad = bad & " " & Format$(dates(r), "d-mmm") & "=" & ToText(v(r, 3)) & " " & FmtPair(v(r, 8), v(r, 9)) & ";"
+            End If
+        Next r
+        LogResult "Y" & idx & "1", cat, "After a refresh in " & y & ": its holidays (and in-lieu Mondays) get holiday rates", _
+                  IIf(Len(bad) = 0, "PASS", "FAIL"), k & " dates correct", IIf(Len(bad) = 0, k & " dates correct", "wrong:" & bad), _
+                  "Simulated with the fixed-date holidays only (1 Jan, 1 May, 9 Aug, 25 Dec + Sunday in-lieu days); " & _
+                  "moving holidays depend on what MOM publishes."
+
+        ' Y?2 random full forms in the new year
+        TestFuzz ROLLOVER_FUZZ, "Y" & idx & "2", "Year " & y & " random fills"
+
+        ' Y?3 last December's claim, finished after the new year's table is loaded
+        d = DateSerial(y - 1, 12, 25)
+        ClearInputs
+        SetClaimMonth y - 1, 12
+        PutRow FIRST_ROW, d, "08:00", "09:00", "17:00", "18:00"
+        Recalc
+        g = mForm.Range("C11:I11").Value
+        LogResult "Y" & idx & "3", cat, "December " & (y - 1) & " claim submitted after the " & y & " holidays load (25 Dec)", _
+                  IIf(ToText(g(1, 1)) = "Y", "PASS", "WARN"), "Y", ToText(g(1, 1)) & ", " & FmtPair(g(1, 6), g(1, 7)), _
+                  "Last year's holidays drop out on 1 January. Submit December claims before the year ends, " & _
+                  "or keep a copy of last year's holiday list."
+    Next y
+
+    ' put the real holiday rows back exactly
+    lo.DataBodyRange.Value = orig
+    ClearInputs
+    mForm.Range(MONTH_CELL).Value = oldK5
+    Recalc
+    LoadHolidays
+    LogResult "Y99", cat, "Holiday table restored after the simulation", IIf(TableSignature() = origSig, "PASS", "FAIL"), _
+              "identical", IIf(TableSignature() = origSig, "identical", "different")
+    Exit Sub
+Boom:
+    LogCrash "Y98", cat
+    On Error Resume Next
+    If IsArray(orig) Then lo.DataBodyRange.Value = orig
+    ClearInputs
+    mForm.Range(MONTH_CELL).Value = oldK5
+    Recalc
+    LoadHolidays
+End Sub
+
+' Next-year holidays that never move, plus the Monday in lieu when one falls on a Sunday.
+' The table keeps its size: spare rows repeat the last holiday (harmless for COUNTIF).
+Private Sub WriteSyntheticHolidays(ByVal lo As ListObject, ByVal y As Long)
+    Dim fixedList As Variant, i As Long, k As Long, cnt As Long, n As Long, d As Date
+    Dim ds(1 To 8) As Date, nm(1 To 8) As String, tp(1 To 8) As String, rows() As Variant
+    fixedList = Array(1, 1, "New Year's Day", 5, 1, "Labour Day", 8, 9, "National Day", 12, 25, "Christmas Day")
+    For i = 0 To UBound(fixedList) Step 3
+        d = DateSerial(y, fixedList(i), fixedList(i + 1))
+        cnt = cnt + 1: ds(cnt) = d: nm(cnt) = fixedList(i + 2): tp(cnt) = "Public Holiday"
+        If Weekday(d, vbMonday) = 7 Then
+            cnt = cnt + 1: ds(cnt) = d + 1: nm(cnt) = fixedList(i + 2) & " (In lieu)": tp(cnt) = "Public Holiday in lieu"
+        End If
+    Next i
+    n = lo.DataBodyRange.Rows.Count
+    ReDim rows(1 To n, 1 To lo.ListColumns.Count)
+    For i = 1 To n
+        k = MinL(i, cnt)
+        rows(i, 1) = ds(k)
+        rows(i, 2) = EnglishDay(CDbl(ds(k)))
+        rows(i, 3) = nm(k)
+        rows(i, 4) = tp(k)
+    Next i
+    lo.DataBodyRange.Value = rows
+End Sub
+
+Private Sub AddPopup(ByVal section As String, ByVal c As Range)
+    If mPopupCount >= UBound(mPopups, 1) Then Exit Sub
+    mPopupCount = mPopupCount + 1
+    mPopups(mPopupCount, 1) = section
+    mPopups(mPopupCount, 2) = c.Address(False, False)
+    mPopups(mPopupCount, 3) = NzStr(VProp(c, "InputTitle"))
+    mPopups(mPopupCount, 4) = NzStr(VProp(c, "InputMessage"))
+    mPopups(mPopupCount, 5) = NzStr(VProp(c, "ErrorTitle"))
+    mPopups(mPopupCount, 6) = NzStr(VProp(c, "ErrorMessage"))
+End Sub
+
+' A property of a cell's data validation, or Null when the cell has no validation.
+Private Function VProp(ByVal c As Range, ByVal prop As String) As Variant
+    VProp = Null
+    On Error Resume Next
+    VProp = CallByName(c.Validation, prop, VbGet)
+End Function
+
+Private Function VTrue(ByVal v As Variant) As Boolean
+    If VarType(v) = vbBoolean Then VTrue = v
+End Function
+
+' True / False = does the cell's current value pass its rule; Null = Excel could not tell.
+Private Function ValidOK(ByVal c As Range) As Variant
+    ValidOK = Null
+    On Error Resume Next
+    ValidOK = c.Validation.Value
+End Function
+
+' "OCTOBER 2026" -> 1-Oct-2026 as a serial, anything else -> 0
+Private Function ParseMonthText(ByVal s As String) As Double
+    Dim parts() As String, m As Long
+    parts = Split(s, " ")
+    If UBound(parts) <> 1 Then Exit Function
+    If Len(parts(1)) <> 4 Or Not parts(1) Like "####" Then Exit Function
+    For m = 1 To 12
+        If parts(0) = EnglishMonth(m) Then
+            ParseMonthText = DateSerial(Val(parts(1)), m, 1)
+            Exit Function
+        End If
+    Next m
+End Function
+
+' Same rule as the date validation: inside the claim month, or its previous day.
+Private Function InClaimMonth(ByVal ds As Double, ByVal monthStart As Double) As Boolean
+    InClaimMonth = (Year(CDate(ds)) = Year(CDate(monthStart)) And Month(CDate(ds)) = Month(CDate(monthStart))) Or _
+                   (Int(ds) = monthStart - 1)
+End Function
+
+Private Sub SetClaimMonth(ByVal y As Long, ByVal m As Long)
+    mForm.Range(MONTH_CELL).Value = EnglishMonth(m) & " " & y
+End Sub
+
+Private Function EnglishMonth(ByVal m As Long) As String
+    EnglishMonth = Choose(m, "JANUARY", "FEBRUARY", "MARCH", "APRIL", "MAY", "JUNE", "JULY", "AUGUST", _
+                          "SEPTEMBER", "OCTOBER", "NOVEMBER", "DECEMBER")
+End Function
+
+Private Function EnglishDay(ByVal ds As Double) As String
+    EnglishDay = Choose(Weekday(CDate(ds), vbMonday), "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
+End Function
+
+'==============================================================================
 '  REFERENCE MODEL - an independent re-implementation of the form's rules
 '  (checked against the real formulas on 540 random rows + 21 hand cases)
 '==============================================================================
@@ -1473,7 +1900,7 @@ Private Function Oracle(ByVal dSerial As Double, ByRef t() As Long, ByVal q1 As 
         Exit Function
     End If
     r.DayText = Format$(CDate(dSerial), "ddd")
-    r.PH = IIf(IsHolidayExact(dSerial), "Y", "N")
+    r.PH = IIf(IsHoliday(dSerial), "Y", "N")
     If t(0) < 0 And t(1) < 0 And t(2) < 0 And t(3) < 0 Then
         r.Travel = "": r.Work = ""
         Oracle = r
@@ -1686,12 +2113,13 @@ Private Function LoadHolidays() As Boolean
     LoadHolidays = (n > 0)
 End Function
 
-' Same test the form uses: COUNTIF(Holidays_1[Date], date) > 0 (exact match).
-Private Function IsHolidayExact(ByVal dSerial As Double) As Boolean
+' Same test the form uses: COUNTIF(Holidays_1[Date], date) or COUNTIF(..., TEXT(date,"yyyy-mm-dd")),
+' so a date carrying a time of day still matches its calendar day.
+Private Function IsHoliday(ByVal dSerial As Double) As Boolean
     Dim i As Long
     For i = 1 To mHolCount
-        If CDbl(mHol(i)) = dSerial Then
-            IsHolidayExact = True
+        If CDbl(mHol(i)) = Int(dSerial) Then
+            IsHoliday = True
             Exit Function
         End If
     Next i
@@ -2233,6 +2661,22 @@ Private Sub WriteCopilotSheet()
     f = "=COPILOT(" & XlText(p) & "," & holRef & "," & XlText("Office hours:") & ",$K$6)"
     CopilotBlock ws, r, "5. New test scenarios (copy the result, Paste Values into " & OUT_SCENARIOS & "!B" & SCEN_FIRST_ROW & _
                  " or the next free row, then run RunScenariosOnly)", p, holRef & ", $K$6", f
+
+    If mPopupCount > 0 Then
+        ws.Range("O4").Value = "Pop-ups found on the form"
+        ws.Range("O4").Font.Bold = True
+        ws.Range("O5:T5").Value = Array("Section", "Cell", "Pop-up title", "Pop-up text", "Error title", "Error text")
+        ws.Range("O6:T" & (5 + mPopupCount)).NumberFormat = "@"
+        For i = 1 To mPopupCount
+            ws.Range(ws.Cells(5 + i, 15), ws.Cells(5 + i, 20)).Value = Array(mPopups(i, 1), mPopups(i, 2), mPopups(i, 3), _
+                                                                            Replace(Replace(mPopups(i, 4), vbCr, ""), vbLf, " "), mPopups(i, 5), Replace(Replace(mPopups(i, 6), vbCr, ""), vbLf, " "))
+        Next i
+        p = "These are the input pop-ups and error messages on an Excel overtime form filled in by field service engineers. " & _
+            "For each, say whether it is clear, consistent with the others (capitals, examples, date format) and matches what the " & _
+            "cell accepts, and suggest a shorter or clearer wording where useful. Keep each suggestion under 255 characters."
+        CopilotBlock ws, r, "6. Pop-up wording review", p, "$O$5:$T$" & (5 + mPopupCount), _
+                     "=COPILOT(" & XlText(p) & ",$O$5:$T$" & (5 + mPopupCount) & ")"
+    End If
 
     ws.Columns("A").ColumnWidth = 110
     ws.Columns("H:I").AutoFit

@@ -1,9 +1,12 @@
 # Overtime form stress test
 
-A VBA stress test for `OVERTIME_FORM_2026_MM__NAME__rev_1.2_QUERY_LINKED.xlsx`, the
-Singapore field-service overtime claim form whose public holidays are loaded by the
+A VBA stress test for `OVERTIME_FORM_MONTH_MANUAL_INPUT_CLEAN_1.xlsx` (the version with
+the month entry in `K5` and input pop-ups), the Singapore field-service overtime claim form whose public holidays are loaded by the
 Power Query **Holidays** from mom.gov.sg. Microsoft Copilot is used to explain the
 results and to suggest new test cases.
+
+It still runs against the earlier rev 1.2 form; the month and pop-up checks then report
+that those features are missing.
 
 **The query is never edited.** Every test runs on a temporary copy of the workbook.
 The copy's query is only refreshed. Its M code and connection string are compared
@@ -16,7 +19,7 @@ file's size and timestamp are checked too (`Q98`).
 |---|---|
 | `vba/OvertimeStressTest.bas` | The stress test. Import it into any macro-enabled workbook. |
 | `docs/COPILOT_PROMPTS.md` | How Copilot is used, plus prompts for the Copilot chat pane. |
-| `docs/FINDINGS.md` | What a first analysis of rev 1.2 found, verified by recalculating the real formulas. |
+| `docs/FINDINGS.md` | What changed in the month-entry version and what the analysis found, verified by recalculating the real formulas. |
 | `tools/oracle.py` | Python copy of the reference model the VBA compares the form against. |
 | `tools/cross_check_libreoffice.py` | Checks the reference model against the real formulas using LibreOffice (no Excel needed). |
 
@@ -62,18 +65,20 @@ Every row of the form and every part of the file is covered:
 
 | ID | Area | What is checked |
 |---|---|---|
-| S01–S18 | Structure | The four sheets are present. The engine sheet is hidden and the form is protected. Input cells are unlocked and output cells locked. Office hours `Q1`/`Q2` are valid. The headings are in place. Name, ID, month and approvers are filled in. The LOCAL/OVERSEAS list points at `M9:M10`. Data validation, conditional formatting and number formats are present (Project ID must be Text). The total formulas are correct. There are no stray validations on the hidden sheet. The print area and file size are sensible. |
+| S01–S20 | Structure | The four sheets are present (the holiday sheet may be hidden). The engine sheet is hidden and the form is protected. Input cells are unlocked and output cells locked. Office hours `Q1`/`Q2` are valid. The headings are in place. Name, ID, month and approvers are filled in. The LOCAL/OVERSEAS list points at `M9:M10`. Data validation, conditional formatting and number formats are present (Project ID must be Text). The total formulas are correct. There are no stray validations on the hidden sheet. The print area and file size are sensible. "Submitted By:" is at A77 and C77 is an input. Full-recalculation mode is reported. |
 | F01–F07 | Formulas | All 540 engine formulas are consistent across rows 11–70, and all 240 form cells link to the engine. There is no `#REF!` inside any formula. Office hours and the `Holidays_1[Date]` lookup are wired in. There are no error values in the file as saved (F07) or after a full recalculation (F06). |
 | Q01–Q06, Q98, Q99 | Power Query (read only) | The query, its connection and the table binding exist. The M code fingerprint is recorded. The query covers only the current year and depends on the live web page. The query and the original file are unchanged at the end. |
-| B01–B10 | As-found entries | The rows already in the file calculate correctly. Also checks: dates all in one month and in the holiday year, chronological order, rows with times but no date, valid LOCAL/OVERSEAS values, and Project IDs stored as text. |
+| B01–B10 | As-found entries | The rows already in the file calculate correctly. Also checks: dates all in the claim month typed in `K5` (or the day before it) and in the holiday year, chronological order, rows with times but no date, valid LOCAL/OVERSEAS values, and Project IDs stored as text. |
 | R01–R04 | Refresh stress | 10 refreshes in a row (configurable): success rate, identical data every time, timing statistics, and the form's public-holiday column following the refreshed table each time. |
 | H01–H15 | Holiday table | Columns, row count, real dates, current year, Day matching Date, allowed Types, and clean names. In-lieu Mondays follow Sunday holidays. Rows are sorted with no duplicates. Fixed and moving holidays are present, and no stale rows are left under the table. Every holiday is flagged **Y** on the form and the day after it **N**. |
 | K01–K22 | Known answers | 21 hand-checked cases with fixed expected hours: overnight shifts, office-hour boundaries (07:59–08:01, 17:30), midnight crossings, blank middle columns, weekday public holidays and 23:59 days. Also the sample month's totals (15.5 / 7.5 / 23). |
 | L01–L07 | Known limitations | 24-hour trips, two midnight crossings, a holiday date with a time part, holidays from the previous or next year, an entry with only **From** filled, and overnight travel into the next day's office hours. |
 | P01–P07 | Bad pasted input | Text in a time cell, a date typed as text, 25:00 and negative times, seconds, 255-character names, trailing-zero Project IDs, and dates before 2020. These show what happens when pasting bypasses data validation. |
+| V01–V09 | Pop-ups and month entry | Every section the engineer fills in (name, ID, month, dates, times, submitted by) shows a pop-up, and LOCAL/OVERSEAS, Project ID and Vessel are listed if they don't. Date, time and month rules use a Stop alert with a message. `K5` accepts `OCTOBER 2026` style only (16 cases) and rejects impossible years. The engine's claim month (`J6`) follows `K5`. The date column accepts only the claim month plus the day before it (13 cases, including December → January and 29 Feb). The time columns accept real times in order and 00:00 as midnight (15 cases). Each answer comes from Excel's own `Validation.Value`, i.e. what an engineer would see when typing. |
 | Z01–Z04 | Random fills | 200 fills × 60 rows (12,000 rows) of random dates (25% public holidays), time patterns and projects. Each row, the totals and the Project IDs are compared with the reference model. Recalculation time is measured. |
 | C01–C04 | Capacity | All 60 rows filled with near-24-hour days, the totals with a full form, and 50 forced full recalculations. |
 | O1xx–O4xx | Office hours | Random fills with office hours 07:30–16:30, 09:00–18:00, 07:00–19:00 and 00:00–23:59, on the copy only. Needs the sheet password in `FORM_PASSWORD` if the form has one. |
+| Y01–Y99 | Year rollover | Simulated on the copy. New Year's Day of next year while the table still holds this year. Then the table is replaced by next year's and the year after's fixed-date holidays (1 Jan, 1 May, 9 Aug, 25 Dec, plus Sunday in-lieu Mondays): each must be flagged Y at holiday rates, followed by random full forms in that year, and a December claim finished after the new year loads. The real holiday rows are put back and checked identical (Y99). The query itself is not edited; only a real refresh after 1 January can prove the query's own year switch. |
 | U… | Scenarios | Each row on `ST_Scenarios`: the form against the reference model, and against your expected hours if you gave them. |
 
 ### The reference model
@@ -100,6 +105,7 @@ Change these at the top of `OvertimeStressTest.bas`:
 | `FUZZ_ITERATIONS` | 200 | Random full-form fills (× 60 rows) |
 | `RECALC_ITERATIONS` | 50 | Forced full recalculations |
 | `OFFICE_HOURS_FUZZ` | 10 | Random fills for each alternative office-hours setting |
+| `ROLLOVER_FUZZ` | 10 | Random fills for each simulated future holiday year |
 | `RANDOM_SEED` | 20260929 | Same seed = same random inputs, so failures can be reproduced |
 | `FORM_PASSWORD` | `""` | Sheet password of `Engineer Name`, if any |
 | `KEEP_TEST_COPY` | False | Keep the scratch copy for inspection |
@@ -114,6 +120,7 @@ Change these at the top of `OvertimeStressTest.bas`:
 3. A read-out of the performance figures.
 4. The pattern behind any mismatches.
 5. A generator for new edge-case test rows. Paste them into `ST_Scenarios` and run `RunScenariosOnly`.
+6. A review of the wording of every input pop-up and error message found on the form.
 
 A few things to know:
 
