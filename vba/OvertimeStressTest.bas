@@ -1127,6 +1127,17 @@ Private Sub TestLimitations()
               IIf(SameValue(g, 4), "PASS", "WARN"), "4 h (07:00-11:00 once)", ToText(g) & " h travel", _
               "The form has no overlap check, so 09:00-10:00 is paid twice. The stress test's own overlap check " & _
               "(B11) " & IIf(Len(OverlapOfFormRows(FIRST_ROW, FIRST_ROW + 1)) > 0, "detects", "DID NOT detect") & " this case."
+    LogResult "L09", cat, "Form highlights the two overlapping rows", _
+              IIf(Highlighted(FIRST_ROW) And Highlighted(FIRST_ROW + 1), "PASS", "WARN"), "rows 11 and 12 red", _
+              "row 11 " & IIf(Highlighted(FIRST_ROW), "red", "not red") & ", row 12 " & IIf(Highlighted(FIRST_ROW + 1), "red", "not red"), _
+              "Needs the overlap rule on D11:G70 and the helper columns K11:L70 on '" & SH_ENGINE & "'."
+    ClearInputs
+    PutRow FIRST_ROW, sat, "07:00", "", "", "09:00"
+    PutRow FIRST_ROW + 1, sat, "09:00", "", "", "11:00"
+    Recalc
+    LogResult "L10", cat, "Back-to-back rows (07:00-09:00, 09:00-11:00) are not highlighted", _
+              IIf(Highlighted(FIRST_ROW) Or Highlighted(FIRST_ROW + 1), "WARN", "PASS"), "not red", _
+              IIf(Highlighted(FIRST_ROW) Or Highlighted(FIRST_ROW + 1), "red", "not red")
 
     If mQ1 = DEFAULT_Q1 And mQ2 = DEFAULT_Q2 Then
         ClearInputs
@@ -1972,6 +1983,12 @@ Private Function OverlapOfFormRows(ByVal r1 As Long, ByVal r2 As Long) As String
         If VarType(v) = vbDouble Then h(k) = RowSpan(CDbl(v), t, s(k), e(k))
     Next k
     OverlapOfFormRows = OverlapList(s, e, h)
+End Function
+
+' True when the From cell of a form row shows the overlap highlight (light red fill).
+Private Function Highlighted(ByVal r As Long) As Boolean
+    On Error Resume Next
+    Highlighted = (mForm.Cells(r, 4).DisplayFormat.Interior.Color = RGB(255, 199, 206))
 End Function
 
 '==============================================================================

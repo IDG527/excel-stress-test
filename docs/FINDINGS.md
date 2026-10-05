@@ -154,6 +154,21 @@ test now:
 
 Back-to-back rows (one ends at 10:00, the next starts at 10:00) are not counted as overlapping.
 
+### Overlap highlight added to the form
+
+Added to the latest form (the version with the K5 and date rules). Only these two things changed:
+
+* **Helper columns on the hidden engine sheet, K11:L70** (headed "OVERLAP CHECK"). They hold each
+  row's job start and end in whole minutes, using the form's midnight roll-over. A row with no
+  date, fewer than two times, or zero length is left blank.
+* **One conditional-format rule on D11:G70.** It shades a row's time cells light red when another
+  row's job overlaps it, using the form's existing light-red style.
+
+No formula, layout, validation, protection or other cell changed. Checked in LibreOffice on 19
+rows, with 0 wrong: overlaps, back-to-back rows, crossing midnight, different dates, incomplete
+rows, zero-length rows, a blank first time, rows without a date, and three rows on one day.
+Travel and Work results are unchanged (120 random rows, 0 differences). *(L09, L10)*
+
 ## Not yet verified (needs Excel)
 
 * **Live refresh.** Whether the `Web.BrowserContents` refresh succeeds reliably, and its
