@@ -139,6 +139,21 @@ the rule from the section "Keeping J6 empty" above.
 Still open in that copy: the Engineer Name sheet is not protected (S03), and the K5 error
 message doesn't mention the year rule.
 
+## One job per row, and overlapping rows
+
+Jobs on the same vessel at different times go on separate rows with the same date. Columns H and I
+stay locked and calculated.
+
+The form has no overlap check, so two rows on the same day with overlapping times are both paid
+in full. For example, Saturday 07:00–10:00 and 09:00–11:00 give 5 h instead of 4 h. The stress
+test now:
+
+* flags this case as a limitation *(L08)*;
+* checks the entries saved in the file and lists every pair of overlapping rows, including rows
+  that cross midnight into the next date *(B11)*.
+
+Back-to-back rows (one ends at 10:00, the next starts at 10:00) are not counted as overlapping.
+
 ## Not yet verified (needs Excel)
 
 * **Live refresh.** Whether the `Web.BrowserContents` refresh succeeds reliably, and its

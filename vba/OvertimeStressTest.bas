@@ -648,6 +648,7 @@ Private Sub TestBaseline(ByRef base As Variant)
     Dim months As String, yrs As String, unsorted As Boolean, lastD As Double, dupes As String
     Dim claimMonth As Double, outside As String
     Dim noTimes As String, noDate As String, badJ As String, numK As String, anyTime As Boolean, skip As Boolean
+    Dim spanS(1 To NROWS) As Double, spanE(1 To NROWS) As Double, hasSpan(1 To NROWS) As Boolean, overlaps As String
     cat = "As-found entries"
     On Error GoTo Boom
 
@@ -700,6 +701,7 @@ Private Sub TestBaseline(ByRef base As Variant)
         End If
         If Not IsEmpty(base(i, 11)) And VarType(base(i, 11)) <> vbString Then numK = numK & " K" & (i + 10)
 
+        If Not skip And ds <> 0 Then hasSpan(i) = RowSpan(ds, t, spanS(i), spanE(i))
         If Not skip And (ds <> 0 Or anyTime) Then
             e = Oracle(ds, t, mQ1, mQ2)
             If Not RowMatches(e, v(i, 2), v(i, 3), v(i, 8), v(i, 9), ds) Then
@@ -738,6 +740,12 @@ Private Sub TestBaseline(ByRef base As Variant)
     If Len(badJ) > 0 Then LogResult "B09", cat, "LOCAL / OVERSEAS values valid", "WARN", "LOCAL or OVERSEAS", Trim$(badJ)
     If Len(numK) > 0 Then LogResult "B10", cat, "Project IDs stored as text", "WARN", "text", "numbers in" & numK, _
                                   "Numeric IDs lose trailing zeros (100084981.010 -> 100084981.01)."
+    overlaps = OverlapList(spanS, spanE, hasSpan)
+    If used > 0 Then
+        LogResult "B11", cat, "No two rows claim the same hours (overlapping times)", IIf(Len(overlaps) = 0, "PASS", "WARN"), _
+                  "no overlaps", IIf(Len(overlaps) = 0, "no overlaps", overlaps), _
+                  IIf(Len(overlaps) = 0, "", "The form pays each row separately, so overlapping time is paid twice. Check these rows.")
+    End If
     Exit Sub
 Boom:
     LogCrash "B99", cat
@@ -1108,6 +1116,17 @@ Private Sub TestLimitations()
     Else
         LogResult "L06", cat, "Incomplete entry (only 'From' filled) is flagged", "PASS", , FmtPair(g(1, 1), g(1, 2))
     End If
+
+    ' L08 two jobs on the same day whose times overlap
+    ClearInputs
+    PutRow FIRST_ROW, sat, "07:00", "", "", "10:00"
+    PutRow FIRST_ROW + 1, sat, "09:00", "", "", "11:00"
+    Recalc
+    g = mForm.Range("H71").Value
+    LogResult "L08", cat, "Two rows on the same day with overlapping times (Sat 07:00-10:00 and 09:00-11:00)", _
+              IIf(SameValue(g, 4), "PASS", "WARN"), "4 h (07:00-11:00 once)", ToText(g) & " h travel", _
+              "The form has no overlap check, so 09:00-10:00 is paid twice. The stress test's own overlap check " & _
+              "(B11) " & IIf(Len(OverlapOfFormRows(FIRST_ROW, FIRST_ROW + 1)) > 0, "detects", "DID NOT detect") & " this case."
 
     If mQ1 = DEFAULT_Q1 And mQ2 = DEFAULT_Q2 Then
         ClearInputs
@@ -1892,6 +1911,67 @@ End Function
 
 Private Function EnglishDay(ByVal ds As Double) As String
     EnglishDay = Choose(Weekday(CDate(ds), vbMonday), "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
+End Function
+
+' Start and end of a row on one timeline (minutes since 30-Dec-1899), using the form's midnight roll-over.
+Private Function RowSpan(ByVal ds As Double, ByRef t() As Long, ByRef startMin As Double, ByRef endMin As Double) As Boolean
+    Dim i As Long, prev As Long, u As Long, first As Long, last As Long, n As Long
+    first = -1
+    prev = 0
+    If t(0) >= 0 Then prev = t(0)
+    For i = 0 To 3
+        If t(i) >= 0 Then
+            u = t(i)
+            Do While u < prev
+                u = u + 1440
+            Loop
+            prev = u
+            If first < 0 Then first = u
+            last = u
+            n = n + 1
+        End If
+    Next i
+    If n < 2 Or last <= first Then Exit Function
+    startMin = Int(ds) * 1440# + first
+    endMin = Int(ds) * 1440# + last
+    RowSpan = True
+End Function
+
+' "rows 11 & 12 (19-Sep 09:00-10:00)" for every pair of rows whose time spans overlap; touching ends are fine.
+Private Function OverlapList(ByRef spanS() As Double, ByRef spanE() As Double, ByRef hasSpan() As Boolean) As String
+    Dim i As Long, j As Long, a As Double, b As Double, n As Long
+    For i = LBound(spanS) To UBound(spanS) - 1
+        If hasSpan(i) Then
+            For j = i + 1 To UBound(spanS)
+                If hasSpan(j) Then
+                    a = spanS(i): If spanS(j) > a Then a = spanS(j)
+                    b = spanE(i): If spanE(j) < b Then b = spanE(j)
+                    If a < b Then
+                        n = n + 1
+                        If n <= 15 Then OverlapList = OverlapList & " rows " & (i + FIRST_ROW - 1) & " & " & (j + FIRST_ROW - 1) & _
+                            " (" & Format$(CDate(Int(a / 1440#)), "d-mmm") & " " & HHMM(CLng(a - Int(a / 1440#) * 1440#)) & "-" & _
+                            HHMM(CLng(b - Int(a / 1440#) * 1440#) Mod 1440) & ");"
+                    End If
+                End If
+            Next j
+        End If
+    Next i
+    If n > 15 Then OverlapList = OverlapList & " ... " & n & " pairs in all"
+End Function
+
+' Overlap check on two rows currently on the form (used by L08 to prove B11 would catch it).
+Private Function OverlapOfFormRows(ByVal r1 As Long, ByVal r2 As Long) As String
+    Dim s(1 To 2) As Double, e(1 To 2) As Double, h(1 To 2) As Boolean, t(0 To 3) As Long, k As Long, c As Long, r As Long, v As Variant
+    For k = 1 To 2
+        r = IIf(k = 1, r1, r2)
+        For c = 0 To 3
+            v = mForm.Cells(r, 4 + c).Value2
+            If VarType(v) = vbDouble Then t(c) = Int(v * 1440 + 0.5) Mod 1440 Else t(c) = -1
+        Next c
+        v = mForm.Cells(r, 1).Value2
+        If VarType(v) = vbDouble Then h(k) = RowSpan(CDbl(v), t, s(k), e(k))
+    Next k
+    OverlapOfFormRows = OverlapList(s, e, h)
 End Function
 
 '==============================================================================
