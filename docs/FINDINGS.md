@@ -77,8 +77,11 @@ The file was compared part by part with the version above, and the rules were re
   rather than four digits. *(V05)*
 * **K5 is empty in this copy.** Until a month is entered, every date is rejected (once J6 is fixed),
   so the date error message should also say "enter the month in K5 first".
-* **Password and the stress test:** the office-hours tests (O) need the sheet password in
-  `FORM_PASSWORD`, otherwise they are skipped. Every other test works on the protected form.
+* **Office hours (with the sheet password):** Travel and Work stay correct when the office
+  hours in Q1/Q2 change: 07:30–16:30, 09:00–18:00, 07:00–19:00 and 00:00–23:59, 120 random rows
+  each, 0 differences. Q1/Q2 are locked and in a hidden column, so only someone with the password
+  can change them. In the VBA, put the password in `FORM_PASSWORD` on your own copy of the module
+  (it is not stored in this repository). *(O1–O4)*
 * **Unchanged:** the Power Query (byte for byte), all Travel/Work formulas (240 more random rows,
   0 differences), and the open issues 3 and 6–13 above.
 

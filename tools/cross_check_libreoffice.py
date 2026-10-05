@@ -62,6 +62,8 @@ def main():
     ap.add_argument("workbook")
     ap.add_argument("--runs", type=int, default=3)
     ap.add_argument("--seed", type=int, default=20260929)
+    ap.add_argument("--office-hours", metavar="HH:MM-HH:MM",
+                    help="put these office hours in Q1/Q2 of the copy first, e.g. 09:00-18:00")
     args = ap.parse_args()
 
     rng = random.Random(args.seed)
@@ -71,9 +73,14 @@ def main():
     wb = openpyxl.load_workbook(src)
     hol_ws = wb[HOLS]
     holidays = [c.value.date() for c in hol_ws["A"][1:] if isinstance(c.value, dt.datetime)]
+    if args.office_hours:                       # the copy only; openpyxl ignores sheet protection
+        start, end = (dt.datetime.strptime(t, "%H:%M").time() for t in args.office_hours.split("-"))
+        wb[FORM]["Q1"].value, wb[FORM]["Q2"].value = start, end
+        wb.save(src)
     q1 = wb[FORM]["Q1"].value
     q2 = wb[FORM]["Q2"].value
     q1, q2 = q1.hour * 60 + q1.minute, q2.hour * 60 + q2.minute
+    print(f"office hours {q1 // 60:02d}:{q1 % 60:02d}-{q2 // 60:02d}:{q2 % 60:02d}")
     year = holidays[0].year
 
     bad_total = 0
