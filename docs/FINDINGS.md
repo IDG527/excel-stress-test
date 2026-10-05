@@ -113,6 +113,30 @@ to be accepted, the A11:A70 rule then has to read K5 itself. Replace the custom 
 The stress test accepts either design. V06 passes when the date rule reads K5 directly, and
 only fails when the rule points at an empty J6.
 
+## Suggested K5 rule: only real 4-digit years
+
+This replaces the custom rule on K5 and closes the year loopholes (V05):
+
+```
+=IFERROR(AND(FIND(" ",K5)=LEN(K5)-4,ISNUMBER(FIND("|"&LEFT(K5,LEN(K5)-5)&"|","|JANUARY|FEBRUARY|MARCH|APRIL|MAY|JUNE|JULY|AUGUST|SEPTEMBER|OCTOBER|NOVEMBER|DECEMBER|")),TEXT(--RIGHT(K5,4),"0")=RIGHT(K5,4),--RIGHT(K5,4)>=2020,--RIGHT(K5,4)<=2099),FALSE)
+```
+
+* **What it checks:**
+  * Exactly one space, with exactly four characters after it.
+  * A full month name in capitals before the space.
+  * A year made of plain digits only. Turning it into a number and back must give the same
+    four characters, which rules out `2.26`, `1E03`, `-202`, `+202` and `0202`.
+  * A year from 2020 to 2099. Change the two limits if you need a different range.
+* It is 252 characters long, under Excel's 255 limit, and works with the date rule above.
+* Checked in LibreOffice on 35 entries, with 0 wrong:
+  * **Accepted:** `OCTOBER 2026`, `MAY 2026`, `JUNE 2026`, `SEPTEMBER 2026`, `JANUARY 2020`,
+    `DECEMBER 2099`.
+  * **Rejected:** `0000`, `9999`, `-202`, `2.26`, `1E03`, `2019`, `2100`, `2O26` (letter O),
+    `20 6`, `+202`, `0202` and `X2026`; every lower-case or short form; extra spaces; and all
+    date-style entries.
+* Suggested error message: *"Type the month in CAPITAL LETTERS and a 4-digit year from 2020 to
+  2099, e.g. OCTOBER 2026."*
+
 ## Not yet verified (needs Excel)
 
 * **Live refresh.** Whether the `Web.BrowserContents` refresh succeeds reliably, and its
