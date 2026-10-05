@@ -85,6 +85,34 @@ The file was compared part by part with the version above, and the rules were re
 * **Unchanged:** the Power Query (byte for byte), all Travel/Work formulas (240 more random rows,
   0 differences), and the open issues 3 and 6–13 above.
 
+## Keeping J6 empty: point the date rule at K5
+
+K5 stays a text month (`OCTOBER 2026`), and `'Formula - Do Not Edit'!J6` stays empty. For dates
+to be accepted, the A11:A70 rule then has to read K5 itself. Replace the custom rule on A11:A70
+(select A11:A70 ▸ Data ▸ Data Validation ▸ Custom) with:
+
+```
+=IF(A11="",TRUE,IFERROR(OR(YEAR(A11)*12+MONTH(A11)=(RIGHT($K$5,4)*12+(FIND(LEFT($K$5,3),"JANFEBMARAPRMAYJUNJULAUGSEPOCTNOVDEC")+2)/3),YEAR(A11+1)*12+MONTH(A11+1)=(RIGHT($K$5,4)*12+(FIND(LEFT($K$5,3),"JANFEBMARAPRMAYJUNJULAUGSEPOCTNOVDEC")+2)/3)),FALSE))
+```
+
+* It is 253 characters long, under Excel's 255-character limit for validation formulas.
+* It works out the month from the first three letters of K5, so it doesn't depend on the
+  computer's language settings. A `DATEVALUE("1 "&K5)` version was rejected for that reason.
+* Checked in LibreOffice on 19 cases, with 0 wrong:
+  * **Accepted:** 1 and 31 Oct plus 30 Sep with `OCTOBER 2026`; 31 Dec 2026 and 1 Jan 2027 with
+    `JANUARY 2027`; 29 Feb 2028 with `MARCH 2028`; 28 Feb 2027 with `MARCH 2027`; 30 Apr with `MAY 2026`.
+  * **Rejected:** 29 Sep, 1 Nov and 15 Oct 2025 with `OCTOBER 2026`; 30 Dec 2026 with `JANUARY 2027`;
+    28 Feb 2028 with `MARCH 2028`.
+  * **K5 empty:** every date is rejected. A blank date cell is always allowed.
+* Because errors become a clean "rejected", Excel no longer shows "The formula currently
+  evaluates to an error" when you save the rule.
+* **K5 accepts month text only.** The current K5 rule rejects every date-style entry:
+  `1/10/2026`, `01-Oct-2026`, `1 OCTOBER 2026`, `2026-10-01`, `Oct-26`, a pasted real date, and a
+  raw date number. *(V04)*
+
+The stress test accepts either design. V06 passes when the date rule reads K5 directly, and
+only fails when the rule points at an empty J6.
+
 ## Not yet verified (needs Excel)
 
 * **Live refresh.** Whether the `Web.BrowserContents` refresh succeeds reliably, and its

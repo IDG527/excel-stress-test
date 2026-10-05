@@ -1558,7 +1558,8 @@ Private Sub TestPopups()
     cases = Array("OCTOBER 2026", True, "MAY 2026", True, "JANUARY 2027", True, "FEBRUARY 2028", True, _
                   "October 2026", False, "october 2026", False, "Oct 2026", False, "OCT 2026", False, "OCTOBER 26", False, _
                   "2026 OCTOBER", False, "OCTOBER  2026", False, " OCTOBER 2026", False, "OCTOBER 2026 ", False, _
-                  "SEPT 2026", False, "OCTOBER-2026", False, "10/2026", False)
+                  "SEPT 2026", False, "OCTOBER-2026", False, "10/2026", False, _
+                  "1/10/2026", False, "01-Oct-2026", False, "1 OCTOBER 2026", False, "2026-10-01", False, "Oct-26", False)
     wrong = ""
     For i = 0 To UBound(cases) Step 2
         mForm.Range(MONTH_CELL).Value = cases(i)
@@ -1570,7 +1571,7 @@ Private Sub TestPopups()
         End If
     Next i
     LogResult "V04", cat, "Month entry (" & MONTH_CELL & ") accepts 'OCTOBER 2026' style only", IIf(Len(wrong) = 0, "PASS", "FAIL"), _
-              "4 accepted, 12 rejected", IIf(Len(wrong) = 0, "4 accepted, 12 rejected", "wrong:" & wrong)
+              "4 accepted, 17 rejected (incl. 5 date-style entries)", IIf(Len(wrong) = 0, "4 accepted, 17 rejected", "wrong:" & wrong)
 
     ' V05 years that pass the 4-digit check but make no sense
     loose = ""
@@ -1583,21 +1584,27 @@ Private Sub TestPopups()
               IIf(Len(loose) = 0, "", "The rule checks for four characters, not a sensible year. A typo like OCTOBER 2062 also passes. " & _
                   "Adding AND(VALUE(year)>=2020, VALUE(year)<=2099) would close this.")
 
-    ' V06 the engine turns K5 into the claim month the date rule uses
+    ' V06 where the date rule gets the claim month from: straight from K5, or via engine J6
     mForm.Range(MONTH_CELL).Value = "OCTOBER 2026"
     Recalc
-    j6 = mEng.Range(ENGINE_MONTH_CELL).Value
-    If IsError(j6) Or IsEmpty(j6) Or Not IsNumeric(j6) Or VarType(j6) = vbString Then
-        LogResult "V06", cat, "Engine " & ENGINE_MONTH_CELL & " holds the month typed in " & MONTH_CELL, "FAIL", _
-                  "1-Oct-2026 for 'OCTOBER 2026'", ToText(j6) & IIf(mEng.Range(ENGINE_MONTH_CELL).HasFormula, "", " (no formula)"), _
-                  "The date rule on A11:A70 compares every date with '" & SH_ENGINE & "'!" & ENGINE_MONTH_CELL & _
-                  ". While it is empty, Excel rejects EVERY date an engineer types (see V07). Suggested formula for " & ENGINE_MONTH_CELL & ": " & _
-                  "=IFERROR(DATE(VALUE(RIGHT('Engineer Name'!K5,4)),MATCH(LEFT('Engineer Name'!K5,FIND("" "",'Engineer Name'!K5)-1)," & _
-                  "{""JANUARY"",""FEBRUARY"",""MARCH"",""APRIL"",""MAY"",""JUNE"",""JULY"",""AUGUST"",""SEPTEMBER"",""OCTOBER"",""NOVEMBER"",""DECEMBER""},0),1),"""")"
-    ElseIf Year(CDate(j6)) = 2026 And Month(CDate(j6)) = 10 Then
-        LogResult "V06", cat, "Engine " & ENGINE_MONTH_CELL & " holds the month typed in " & MONTH_CELL, "PASS", "Oct 2026", Format$(CDate(j6), "d-mmm-yyyy")
+    lf = NzStr(VProp(mForm.Range("A11"), "Formula1"))
+    If InStr(1, Replace(lf, "$", ""), ENGINE_MONTH_CELL, vbTextCompare) = 0 Then
+        LogResult "V06", cat, "Date rule reads the claim month", "PASS", MONTH_CELL & " or " & ENGINE_MONTH_CELL, _
+                  "directly from " & MONTH_CELL, "The rule on A11:A70 does not use '" & SH_ENGINE & "'!" & ENGINE_MONTH_CELL & _
+                  ", so that cell can stay empty. V07 checks the rule's answers."
     Else
-        LogResult "V06", cat, "Engine " & ENGINE_MONTH_CELL & " holds the month typed in " & MONTH_CELL, "FAIL", "Oct 2026", Format$(CDate(j6), "d-mmm-yyyy")
+        j6 = mEng.Range(ENGINE_MONTH_CELL).Value
+        If IsError(j6) Or IsEmpty(j6) Or Not IsNumeric(j6) Or VarType(j6) = vbString Then
+            LogResult "V06", cat, "Date rule reads the claim month", "FAIL", _
+                      "1-Oct-2026 in " & ENGINE_MONTH_CELL & " for 'OCTOBER 2026'", ToText(j6) & IIf(mEng.Range(ENGINE_MONTH_CELL).HasFormula, "", " (no formula)"), _
+                      "The date rule on A11:A70 reads '" & SH_ENGINE & "'!" & ENGINE_MONTH_CELL & _
+                      ", which is empty, so Excel rejects EVERY date an engineer types (see V07). Either fill " & ENGINE_MONTH_CELL & _
+                      " from " & MONTH_CELL & ", or change the A11:A70 rule to read " & MONTH_CELL & " directly (see docs/FINDINGS.md)."
+        ElseIf Year(CDate(j6)) = 2026 And Month(CDate(j6)) = 10 Then
+            LogResult "V06", cat, "Date rule reads the claim month", "PASS", "Oct 2026 in " & ENGINE_MONTH_CELL, Format$(CDate(j6), "d-mmm-yyyy")
+        Else
+            LogResult "V06", cat, "Date rule reads the claim month", "FAIL", "Oct 2026 in " & ENGINE_MONTH_CELL, Format$(CDate(j6), "d-mmm-yyyy")
+        End If
     End If
 
     ' V07 date rule: only the claim month, plus the last day of the month before (overnight jobs)
