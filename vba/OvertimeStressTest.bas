@@ -1573,16 +1573,16 @@ Private Sub TestPopups()
     LogResult "V04", cat, "Month entry (" & MONTH_CELL & ") accepts 'OCTOBER 2026' style only", IIf(Len(wrong) = 0, "PASS", "FAIL"), _
               "4 accepted, 17 rejected (incl. 5 date-style entries)", IIf(Len(wrong) = 0, "4 accepted, 17 rejected", "wrong:" & wrong)
 
-    ' V05 years that pass the 4-digit check but make no sense
+    ' V05 the year must be four plain digits (any 4-digit year is allowed)
     loose = ""
-    For Each okNow In Array("OCTOBER 0000", "OCTOBER 1900", "OCTOBER 9999", "OCTOBER -202", "OCTOBER 2.26", "OCTOBER 1E03")
+    For Each okNow In Array("OCTOBER -202", "OCTOBER 2.26", "OCTOBER 1E03", "OCTOBER +202", "OCTOBER 2O26", "OCTOBER 20 6")
         mForm.Range(MONTH_CELL).Value = okNow
         If VTrue(ValidOK(mForm.Range(MONTH_CELL))) Then loose = loose & " '" & okNow & "'"
     Next okNow
-    LogResult "V05", cat, "Month entry rejects impossible years", IIf(Len(loose) = 0, "PASS", "WARN"), "rejected", _
+    LogResult "V05", cat, "Month entry rejects years that are not four plain digits", IIf(Len(loose) = 0, "PASS", "WARN"), "rejected", _
               IIf(Len(loose) = 0, "rejected", "accepted:" & loose), _
-              IIf(Len(loose) = 0, "", "The rule checks for four characters, not a sensible year. A typo like OCTOBER 2062 also passes. " & _
-                  "Adding AND(VALUE(year)>=2020, VALUE(year)<=2099) would close this.")
+              IIf(Len(loose) = 0, "", "The rule reads the year as a number instead of checking four digits. " & _
+                  "TEXT(--RIGHT(K5,4),""0000"")=RIGHT(K5,4) only lets plain digits through.")
 
     ' V06 where the date rule gets the claim month from: straight from K5, or via engine J6
     mForm.Range(MONTH_CELL).Value = "OCTOBER 2026"
