@@ -59,6 +59,29 @@ form's own date rule:
 =IFERROR(DATE(VALUE(RIGHT('Engineer Name'!K5,4)),MATCH(LEFT('Engineer Name'!K5,FIND(" ",'Engineer Name'!K5)-1),{"JANUARY","FEBRUARY","MARCH","APRIL","MAY","JUNE","JULY","AUGUST","SEPTEMBER","OCTOBER","NOVEMBER","DECEMBER"},0),1),"")
 ```
 
+## Update: OVERTIME_FORM_MONTH_CAPITALIZED_ONLY
+
+The file was compared part by part with the version above, and the rules were re-run in LibreOffice.
+
+* **The K5 capitals rule is unchanged.** It is identical, character for character, to
+  the previous version, which already rejected `October 2026`, `october 2026`, `OCTOBEr 2026`,
+  `Oct 2026` and `OCT 2026`. All 12 wrong formats are still rejected. *(V04)*
+* **Fixed since the previous version:** the form sheet is password-protected again, and the
+  engine sheet is hidden again *(S02, S03)*. Objects stay editable, so engineers can still
+  place a signature picture as the C77 pop-up asks. All input cells, C77 included, are unlocked.
+* **Still a blocker: J6 is empty**, so every date is rejected, including 1 Oct and 31 Oct with
+  `K5 = OCTOBER 2026`. With the suggested J6 formula, 1 Oct, 31 Oct and 30 Sep are accepted and
+  29 Sep, 1 Nov and 15 Oct 2025 rejected. *(V06, V07)*
+* **More impossible years pass the K5 rule:** besides `0000`, `9999` and `-202`, `OCTOBER 2.26` and
+  `OCTOBER 1E03` are accepted, because the rule checks for four characters that `VALUE()` can read
+  rather than four digits. *(V05)*
+* **K5 is empty in this copy.** Until a month is entered, every date is rejected (once J6 is fixed),
+  so the date error message should also say "enter the month in K5 first".
+* **Password and the stress test:** the office-hours tests (O) need the sheet password in
+  `FORM_PASSWORD`, otherwise they are skipped. Every other test works on the protected form.
+* **Unchanged:** the Power Query (byte for byte), all Travel/Work formulas (240 more random rows,
+  0 differences), and the open issues 3 and 6–13 above.
+
 ## Not yet verified (needs Excel)
 
 * **Live refresh.** Whether the `Web.BrowserContents` refresh succeeds reliably, and its

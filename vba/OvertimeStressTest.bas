@@ -1574,7 +1574,7 @@ Private Sub TestPopups()
 
     ' V05 years that pass the 4-digit check but make no sense
     loose = ""
-    For Each okNow In Array("OCTOBER 0000", "OCTOBER 1900", "OCTOBER 9999", "OCTOBER -202")
+    For Each okNow In Array("OCTOBER 0000", "OCTOBER 1900", "OCTOBER 9999", "OCTOBER -202", "OCTOBER 2.26", "OCTOBER 1E03")
         mForm.Range(MONTH_CELL).Value = okNow
         If VTrue(ValidOK(mForm.Range(MONTH_CELL))) Then loose = loose & " '" & okNow & "'"
     Next okNow
