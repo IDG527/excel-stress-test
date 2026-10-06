@@ -45,7 +45,7 @@ Private Const TOL As Double = 0.001
 ' ---------- workbook layout (rev 1.2) ----------
 Private Const SH_FORM As String = "Engineer Name"
 Private Const SH_ENGINE As String = "Formula - Do Not Edit"
-Private Const SH_HELP As String = "HOW TO USE (FSE Instructions)"
+Private Const SH_HELP As String = "HOW TO USE (FSE Instructions)"   ' rev 1.2; later versions use README sheets
 Private Const SH_HOL As String = "SG Public Holidays"
 Private Const QUERY_NAME As String = "Holidays"
 Private Const CONN_NAME As String = "Query - Holidays"
@@ -58,6 +58,7 @@ Private Const DEFAULT_Q1 As Long = 480            ' 08:00 in minutes
 Private Const DEFAULT_Q2 As Long = 1050           ' 17:30 in minutes
 Private Const MONTH_CELL As String = "K5"         ' claim month typed by the engineer, e.g. OCTOBER 2026
 Private Const ENGINE_MONTH_CELL As String = "J6"  ' engine cell the date rule reads the claim month from
+Private Const DATE_ALLOWS_NEXT_FIRST As Boolean = True ' rev2: the 1st of the next month is also accepted
 
 ' ---------- output sheets ----------
 Private Const OUT_SUMMARY As String = "ST_Summary"
@@ -107,6 +108,10 @@ Private mEngFormulaH As String          ' engine H11 / I11 formulas, captured fo
 Private mEngFormulaI As String
 Private mPopups() As String               ' section | cell | pop-up title | pop-up text | error title | error text
 Private mPopupCount As Long
+Private mColLocal As Long                 ' LOCAL / OVERSEAS column, 0 when the form has none (rev2)
+Private mColProject As Long               ' Project ID column
+Private mColVessel As Long                ' Vessel name column
+Private mLastInput As Long                ' last input column of the job rows
 
 '==============================================================================
 '  ENTRY POINTS
@@ -290,7 +295,7 @@ Private Sub TestStructure()
     End If
 
     bad = ""
-    For Each v In Array("A11:A70", "D11:G70", "J11:L70", "B5", "I5", MONTH_CELL, "C77")
+    For Each v In Array("A11:A70", "D11:G70", ColRange(10, mLastInput), "B5", "I5", MONTH_CELL, "C77")
         lockedState = mForm.Range(v).Locked
         If IsNull(lockedState) Then
             bad = bad & " " & v & "(mixed)"
@@ -302,6 +307,14 @@ Private Sub TestStructure()
         LogResult "S04", cat, "All input cells are unlocked (users can type in them)", "PASS"
     Else
         LogResult "S04", cat, "All input cells are unlocked (users can type in them)", "FAIL", "unlocked", "locked:" & bad
+    End If
+    lockedState = mForm.Range(ColRange(mLastInput + 1, mLastInput + 1)).Locked
+    If Not IsNull(lockedState) Then
+        If Not lockedState And Len(Trim$(CStr(mForm.Cells(9, mLastInput + 1).Value))) = 0 Then
+            LogResult "S04b", cat, "No unlocked cells without a heading next to the job rows", "WARN", "locked", _
+                      ColRange(mLastInput + 1, mLastInput + 1) & " unlocked, no heading", _
+                      "Left over from the removed column: engineers can type there, outside the print area, and nothing uses it."
+        End If
     End If
 
     bad = ""
@@ -329,7 +342,7 @@ Private Sub TestStructure()
 
     headers = Array("A2", "OVERTIME CLAIM", "A5", "NAME", "H5", "ID", "J5", "MONTH", "A9", "DATE", "B9", "DAY", _
                     "C9", "PUBLIC HOLIDAY (Y / N)", "D9", "TRAVEL - WORK - TRAVEL", "H9", "OVERTIME RATE", _
-                    "J9", "LOCAL / OVERSEAS", "K9", "Project ID", "L9", "VESSEL NAME", "D10", "From", _
+                    "D10", "From", _
                     "E10", "Until / From", "F10", "Until / From", "G10", "Until", "H10", "Travel", "I10", "Work", _
                     "J71", "TOTAL", "A77", "Submitted By:")
     bad = ""
@@ -338,8 +351,12 @@ Private Sub TestStructure()
             bad = bad & " " & headers(i) & "='" & CStr(mForm.Range(headers(i)).Value) & "'"
         End If
     Next i
+    If mColProject = 0 Then bad = bad & " Project ID heading not found in J9:L9"
+    If mColVessel = 0 Then bad = bad & " VESSEL NAME heading not found in J9:M9"
     If Len(bad) = 0 Then
-        LogResult "S07", cat, "Form headings are where the formulas expect them", "PASS"
+        LogResult "S07", cat, "Form headings are where the formulas expect them", "PASS", , _
+                  "Project ID in " & ColLetter(mColProject) & ", Vessel in " & ColLetter(mColVessel) & _
+                  IIf(mColLocal > 0, ", LOCAL / OVERSEAS in " & ColLetter(mColLocal), ", no LOCAL / OVERSEAS column")
     Else
         LogResult "S07", cat, "Form headings are where the formulas expect them", "WARN", , bad, _
                   "A heading moved or changed; check the layout was not shifted."
@@ -364,14 +381,19 @@ Private Sub TestStructure()
               IIf(Len(Trim$(CStr(mForm.Range("K77").Value))) > 0 And Len(Trim$(CStr(mForm.Range("K83").Value))) > 0, "PASS", "WARN"), _
               "K77 and K83 filled", "'" & Trim$(CStr(mForm.Range("K77").Value)) & "' / '" & Trim$(CStr(mForm.Range("K83").Value)) & "'"
 
-    f = ValidationFormula(mForm.Range("J11"))
-    If UCase$(mForm.Range("M9").Value) = "LOCAL" And UCase$(mForm.Range("M10").Value) = "OVERSEAS" And _
-       InStr(1, Replace(f, "$", ""), "M9:M10", vbTextCompare) > 0 Then
-        LogResult "S10", cat, "LOCAL / OVERSEAS drop-down points at M9:M10", "PASS", "LOCAL, OVERSEAS", _
-                  mForm.Range("M9").Value & ", " & mForm.Range("M10").Value
+    If mColLocal = 0 Then
+        LogResult "S10", cat, "LOCAL / OVERSEAS column", "INFO", , "removed", _
+                  "The hidden list in M9:M10 (" & ToText(mForm.Range("M9").Value) & ", " & ToText(mForm.Range("M10").Value) & ") is no longer used."
     Else
-        LogResult "S10", cat, "LOCAL / OVERSEAS drop-down points at M9:M10", "FAIL", "=$M$9:$M$10 -> LOCAL, OVERSEAS", _
-                  f & " -> " & ToText(mForm.Range("M9").Value) & ", " & ToText(mForm.Range("M10").Value)
+        f = ValidationFormula(mForm.Cells(FIRST_ROW, mColLocal))
+        If UCase$(mForm.Range("M9").Value) = "LOCAL" And UCase$(mForm.Range("M10").Value) = "OVERSEAS" And _
+           InStr(1, Replace(f, "$", ""), "M9:M10", vbTextCompare) > 0 Then
+            LogResult "S10", cat, "LOCAL / OVERSEAS drop-down points at M9:M10", "PASS", "LOCAL, OVERSEAS", _
+                      mForm.Range("M9").Value & ", " & mForm.Range("M10").Value
+        Else
+            LogResult "S10", cat, "LOCAL / OVERSEAS drop-down points at M9:M10", "WARN", "=$M$9:$M$10 -> LOCAL, OVERSEAS", _
+                      IIf(Len(f) = 0, "(no drop-down)", f) & " -> " & ToText(mForm.Range("M9").Value) & ", " & ToText(mForm.Range("M10").Value)
+        End If
     End If
 
     bad = ""
@@ -380,7 +402,9 @@ Private Sub TestStructure()
     For Each v In Array("D", "E", "F", "G")
         If ValidationType(mForm.Range(v & "11")) <> xlValidateCustom Or ValidationType(mForm.Range(v & "70")) <> xlValidateCustom Then bad = bad & " " & v & "11:" & v & "70(time)"
     Next v
-    If ValidationType(mForm.Range("J11")) <> xlValidateList Or ValidationType(mForm.Range("J70")) <> xlValidateList Then bad = bad & " J11:J70(list)"
+    If mColLocal > 0 Then
+        If ValidationType(mForm.Cells(FIRST_ROW, mColLocal)) <> xlValidateList Or ValidationType(mForm.Cells(LAST_ROW, mColLocal)) <> xlValidateList Then bad = bad & " " & ColRange(mColLocal, mColLocal) & "(list)"
+    End If
     If Len(bad) = 0 Then
         LogResult "S11", cat, "Data validation on date, time and LOCAL/OVERSEAS columns (rows 11-70)", "PASS"
     Else
@@ -410,7 +434,9 @@ Private Sub TestStructure()
 
     bad = ""
     If NzStr(mForm.Range("D11:G70").NumberFormat) <> "hh:mm" Then bad = bad & " D:G=" & NzStr(mForm.Range("D11:G70").NumberFormat)
-    If NzStr(mForm.Range("K11:K70").NumberFormat) <> "@" Then bad = bad & " K=" & NzStr(mForm.Range("K11:K70").NumberFormat)
+    If mColProject > 0 Then
+        If NzStr(mForm.Range(ColRange(mColProject, mColProject)).NumberFormat) <> "@" Then bad = bad & " Project ID=" & NzStr(mForm.Range(ColRange(mColProject, mColProject)).NumberFormat)
+    End If
     If Len(NzStr(mForm.Range("A11:A70").NumberFormat)) = 0 Then bad = bad & " A=(mixed)"
     If Len(bad) = 0 Then
         LogResult "S13", cat, "Number formats: times hh:mm, Project ID as text", "PASS"
@@ -451,12 +477,13 @@ Private Sub TestStructure()
     On Error Resume Next
     f = mForm.PageSetup.PrintArea
     On Error GoTo Boom
-    LogResult "S17", cat, "Print area covers the whole form", IIf(Replace(f, "$", "") = "A1:L84", "PASS", "WARN"), "A1:L84", f
+    LogResult "S17", cat, "Print area covers the whole form", IIf(Replace(f, "$", "") = "A1:" & ColLetter(mLastInput) & "84", "PASS", "WARN"), _
+              "A1:" & ColLetter(mLastInput) & "84", f
 
     sz = mOrigLen / 1048576#
     If sz > LARGE_FILE_MB Then
         LogResult "S18", cat, "Workbook file size", "WARN", "< " & LARGE_FILE_MB & " MB", Format$(sz, "0.0") & " MB", _
-                  "'" & SH_HELP & "' holds " & ShapeCount(SH_HELP) & " picture(s); a full-resolution screenshot there is " & _
+                  "The instruction sheets hold " & HelpShapeCount() & " picture(s); a full-resolution screenshot there is " & _
                   "the usual cause. Large files open, e-mail and sync slowly. Compress the picture (Picture Format > Compress)."
     Else
         LogResult "S18", cat, "Workbook file size", "PASS", "< " & LARGE_FILE_MB & " MB", Format$(sz, "0.0") & " MB"
@@ -696,10 +723,14 @@ Private Sub TestBaseline(ByRef base As Variant)
             If ds = lastD Then dupes = dupes & " " & Format$(CDate(ds), "d-mmm")
             lastD = ds
         End If
-        If Not IsEmpty(base(i, 10)) Then
-            If UCase$(CStr(base(i, 10))) <> "LOCAL" And UCase$(CStr(base(i, 10))) <> "OVERSEAS" Then badJ = badJ & " J" & (i + 10)
+        If mColLocal > 0 Then
+            If Not IsEmpty(base(i, mColLocal)) Then
+                If UCase$(CStr(base(i, mColLocal))) <> "LOCAL" And UCase$(CStr(base(i, mColLocal))) <> "OVERSEAS" Then badJ = badJ & " " & ColLetter(mColLocal) & (i + 10)
+            End If
         End If
-        If Not IsEmpty(base(i, 11)) And VarType(base(i, 11)) <> vbString Then numK = numK & " K" & (i + 10)
+        If mColProject > 0 Then
+            If Not IsEmpty(base(i, mColProject)) And VarType(base(i, mColProject)) <> vbString Then numK = numK & " " & ColLetter(mColProject) & (i + 10)
+        End If
 
         If Not skip And ds <> 0 Then hasSpan(i) = RowSpan(ds, t, spanS(i), spanE(i))
         If Not skip And (ds <> 0 Or anyTime) Then
@@ -1223,12 +1254,12 @@ Private Sub TestRobustness()
     ' P06 long text and Project ID with trailing zero
     ClearInputs
     longText = String$(255, "X")
-    mForm.Range("J11").Value = "OVERSEAS"
-    mForm.Range("K11").Value = "100084981.010"
-    mForm.Range("L11").Value = longText
+    If mColLocal > 0 Then mForm.Cells(FIRST_ROW, mColLocal).Value = "OVERSEAS"
+    mForm.Cells(FIRST_ROW, mColProject).Value = "100084981.010"
+    mForm.Cells(FIRST_ROW, mColVessel).Value = longText
     Recalc
-    g = mForm.Range("K11").Value
-    tot = mForm.Range("L11").Value
+    g = mForm.Cells(FIRST_ROW, mColProject).Value
+    tot = mForm.Cells(FIRST_ROW, mColVessel).Value
     LogResult "P06", cat, "Project ID keeps trailing zeros; 255-character vessel name kept", _
               IIf(SameValue(g, "100084981.010") And Len(ToText(tot)) = 255, "PASS", "FAIL"), _
               "100084981.010 / 255 chars", ToText(g) & " / " & Len(CStr(tot)) & " chars"
@@ -1295,7 +1326,7 @@ Private Sub TestFuzz(ByVal iterations As Long, ByVal idPrefix As String, ByVal l
         t0 = NowMs()
         mForm.Range(mForm.Cells(FIRST_ROW, 1), mForm.Cells(LAST_ROW, 1)).Value = aA
         mForm.Range(mForm.Cells(FIRST_ROW, 4), mForm.Cells(LAST_ROW, 7)).Value = aT
-        mForm.Range(mForm.Cells(FIRST_ROW, 10), mForm.Cells(LAST_ROW, 12)).Value = aJ
+        WriteJobInfo aJ
         tW = NowMs() - t0
         t0 = NowMs()
         Recalc
@@ -1317,9 +1348,9 @@ Private Sub TestFuzz(ByVal iterations As Long, ByVal idPrefix As String, ByVal l
                 rowsBad = rowsBad + 1
                 LogMismatch label, it, i + FIRST_ROW - 1, ds(i), t, e, v(i, 2), v(i, 3), v(i, 8), v(i, 9)
             End If
-            If VarType(v(i, 11)) <> vbString Then
+            If VarType(v(i, mColProject)) <> vbString Then
                 idBad = idBad + 1
-            ElseIf v(i, 11) <> aJ(i, 2) Then
+            ElseIf v(i, mColProject) <> aJ(i, 2) Then
                 idBad = idBad + 1
             End If
         Next i
@@ -1368,7 +1399,7 @@ Private Sub TestCapacity()
     Next i
     mForm.Range(mForm.Cells(FIRST_ROW, 1), mForm.Cells(LAST_ROW, 1)).Value = aA
     mForm.Range(mForm.Cells(FIRST_ROW, 4), mForm.Cells(LAST_ROW, 7)).Value = aT
-    mForm.Range(mForm.Cells(FIRST_ROW, 10), mForm.Cells(LAST_ROW, 12)).Value = aJ
+    WriteJobInfo aJ
     Recalc
     v = mForm.Range(mForm.Cells(FIRST_ROW, 1), mForm.Cells(LAST_ROW, 12)).Value
     tot = mForm.Range(mForm.Cells(TOTAL_ROW, 8), mForm.Cells(TOTAL_ROW, 11)).Value
@@ -1560,14 +1591,17 @@ Private Sub TestPopups()
 
     ' V02 sections still without a pop-up
     bad = "": info = ""
-    For Each c In mForm.Range("J11,K11,L11").Cells
+    For i = 10 To mLastInput
+        Set c = mForm.Cells(FIRST_ROW, i)
         If Not (VTrue(VProp(c, "ShowInput")) And Len(NzStr(VProp(c, "InputMessage"))) > 0) Then bad = bad & " " & c.Address(False, False)
-    Next c
-    If Not VTrue(VProp(mForm.Range("J11"), "ShowError")) Then
-        info = "LOCAL / OVERSEAS (J) has its error alert switched off, so anything typed there is accepted. "
+    Next i
+    If mColLocal > 0 Then
+        If Not VTrue(VProp(mForm.Cells(FIRST_ROW, mColLocal), "ShowError")) Then
+            info = "LOCAL / OVERSEAS has its error alert switched off, so anything typed there is accepted. "
+        End If
     End If
-    LogResult "V02", cat, "LOCAL/OVERSEAS, Project ID and Vessel columns have pop-ups", _
-              IIf(Len(info) > 0, "WARN", IIf(Len(bad) = 0, "PASS", "INFO")), "pop-ups on J, K, L", _
+    LogResult "V02", cat, "Project ID / Vessel (and LOCAL/OVERSEAS if present) have pop-ups", _
+              IIf(Len(info) > 0, "WARN", IIf(Len(bad) = 0, "PASS", "INFO")), "pop-ups on " & ColRange(10, mLastInput), _
               IIf(Len(bad) = 0, "all present", "no pop-up on" & bad), info & IIf(Len(bad) = 0, "", "Optional: a pop-up such as 'Project ID as on the job sheet, e.g. 100084981.002'.")
 
     ' V03 the cells with a rule stop wrong entries and say why
@@ -1640,7 +1674,8 @@ Private Sub TestPopups()
     ' V07 date rule: only the claim month, plus the last day of the month before (overnight jobs)
     cases = Array("OCTOBER 2026", DateSerial(2026, 10, 1), True, "OCTOBER 2026", DateSerial(2026, 10, 15), True, _
                   "OCTOBER 2026", DateSerial(2026, 10, 31), True, "OCTOBER 2026", DateSerial(2026, 9, 30), True, _
-                  "OCTOBER 2026", DateSerial(2026, 9, 29), False, "OCTOBER 2026", DateSerial(2026, 11, 1), False, _
+                  "OCTOBER 2026", DateSerial(2026, 9, 29), False, "OCTOBER 2026", DateSerial(2026, 11, 1), DATE_ALLOWS_NEXT_FIRST, _
+                  "OCTOBER 2026", DateSerial(2026, 11, 2), False, "DECEMBER 2026", DateSerial(2027, 1, 1), DATE_ALLOWS_NEXT_FIRST, _
                   "OCTOBER 2026", DateSerial(2025, 10, 15), False, _
                   "JANUARY 2027", DateSerial(2026, 12, 31), True, "JANUARY 2027", DateSerial(2027, 1, 1), True, _
                   "JANUARY 2027", DateSerial(2026, 12, 30), False, _
@@ -1660,8 +1695,8 @@ Private Sub TestPopups()
             wrong = wrong & " " & cases(i) & "/" & Format$(cases(i + 1), "d-mmm-yy") & " " & IIf(okNow, "accepted", "rejected") & ";"
         End If
     Next i
-    LogResult "V07", cat, "Date column accepts the claim month and the day before it, nothing else", IIf(Len(wrong) = 0, "PASS", "FAIL"), _
-              "8 accepted, 5 rejected (incl. Dec->Jan and leap year)", IIf(Len(wrong) = 0, "all 13 correct", "wrong:" & wrong)
+    LogResult "V07", cat, "Date column accepts the claim month, the day before it" & IIf(DATE_ALLOWS_NEXT_FIRST, " and the 1st of the next month", "") & ", nothing else", _
+              IIf(Len(wrong) = 0, "PASS", "FAIL"), "15 cases (incl. Dec->Jan and leap year)", IIf(Len(wrong) = 0, "all 15 correct", "wrong:" & wrong)
 
     ' V08 time rules (From, Until/From, Until/From, Until)
     wrong = ""
@@ -1908,7 +1943,8 @@ End Function
 ' Same rule as the date validation: inside the claim month, or its previous day.
 Private Function InClaimMonth(ByVal ds As Double, ByVal monthStart As Double) As Boolean
     InClaimMonth = (Year(CDate(ds)) = Year(CDate(monthStart)) And Month(CDate(ds)) = Month(CDate(monthStart))) Or _
-                   (Int(ds) = monthStart - 1)
+                   (Int(ds) = monthStart - 1) Or _
+                   (DATE_ALLOWS_NEXT_FIRST And Int(ds) = DateSerial(Year(CDate(monthStart)), Month(CDate(monthStart)) + 1, 1))
 End Function
 
 Private Sub SetClaimMonth(ByVal y As Long, ByVal m As Long)
@@ -1989,6 +2025,57 @@ End Function
 Private Function Highlighted(ByVal r As Long) As Boolean
     On Error Resume Next
     Highlighted = (mForm.Cells(r, 4).DisplayFormat.Interior.Color = RGB(255, 199, 206))
+End Function
+
+' Finds Project ID / Vessel / LOCAL-OVERSEAS columns from the headings in row 9 (the column was removed in rev2).
+Private Sub DetectLayout()
+    Dim c As Long, h As String
+    mColLocal = 0: mColProject = 0: mColVessel = 0
+    For c = 10 To 13
+        h = UCase$(Squash(CStr(mForm.Cells(9, c).Value)))
+        If h = "LOCAL / OVERSEAS" Then mColLocal = c
+        If h = "PROJECT ID" Then mColProject = c
+        If h = "VESSEL NAME" Then mColVessel = c
+    Next c
+    If mColProject = 0 Then mColProject = IIf(mColLocal > 0, mColLocal + 1, 10)
+    If mColVessel = 0 Then mColVessel = mColProject + 1
+    mLastInput = mColVessel
+    If mColLocal > mLastInput Then mLastInput = mColLocal
+End Sub
+
+Private Sub WriteJobInfo(ByRef aJ() As Variant)
+    Dim i As Long, colArr(1 To NROWS, 1 To 1) As Variant, k As Long, cols As Variant
+    cols = Array(mColLocal, mColProject, mColVessel)
+    For k = 0 To 2
+        If cols(k) > 0 Then
+            For i = 1 To NROWS
+                colArr(i, 1) = aJ(i, k + 1)
+            Next i
+            mForm.Range(mForm.Cells(FIRST_ROW, cols(k)), mForm.Cells(LAST_ROW, cols(k))).Value = colArr
+        End If
+    Next k
+End Sub
+
+Private Function ColLetter(ByVal c As Long) As String
+    ColLetter = Split(mForm.Cells(1, c).Address(True, False), "$")(0)
+End Function
+
+Private Function ColRange(ByVal c1 As Long, ByVal c2 As Long) As String
+    ColRange = ColLetter(c1) & FIRST_ROW & ":" & ColLetter(c2) & LAST_ROW
+End Function
+
+Private Function OtherSheetNames() As String
+    Dim ws As Worksheet
+    For Each ws In mWb.Worksheets
+        If ws.Name <> SH_FORM And ws.Name <> SH_ENGINE And ws.Name <> SH_HOL Then OtherSheetNames = OtherSheetNames & "'" & ws.Name & "' "
+    Next ws
+End Function
+
+Private Function HelpShapeCount() As Long
+    Dim ws As Worksheet
+    For Each ws In mWb.Worksheets
+        If ws.Name <> SH_FORM And ws.Name <> SH_ENGINE And ws.Name <> SH_HOL Then HelpShapeCount = HelpShapeCount + ws.Shapes.Count
+    Next ws
 End Function
 
 '==============================================================================
@@ -2135,23 +2222,25 @@ End Sub
 '==============================================================================
 Private Function BindSheets() As Boolean
     Dim nm As Variant, missing As String
-    For Each nm In Array(SH_FORM, SH_ENGINE, SH_HELP, SH_HOL)
+    For Each nm In Array(SH_FORM, SH_ENGINE, SH_HOL)
         If SheetByName(mWb, CStr(nm)) Is Nothing Then missing = missing & " '" & nm & "'"
     Next nm
     If Len(missing) = 0 Then
-        LogResult "S01", "Structure", "All four sheets present", "PASS", "4 sheets", "4 sheets"
+        LogResult "S01", "Structure", "Form, engine and holiday sheets present", "PASS", "3 sheets", "3 sheets", _
+                  "Other sheets: " & OtherSheetNames()
     Else
-        LogResult "S01", "Structure", "All four sheets present", "FAIL", "4 sheets", "missing:" & missing
+        LogResult "S01", "Structure", "Form, engine and holiday sheets present", "FAIL", "3 sheets", "missing:" & missing
     End If
     Set mForm = SheetByName(mWb, SH_FORM)
     Set mEng = SheetByName(mWb, SH_ENGINE)
     BindSheets = Not (mForm Is Nothing Or mEng Is Nothing)
+    If BindSheets Then DetectLayout
 End Function
 
 Private Sub ClearInputs()
     mForm.Range(mForm.Cells(FIRST_ROW, 1), mForm.Cells(LAST_ROW, 1)).ClearContents
     mForm.Range(mForm.Cells(FIRST_ROW, 4), mForm.Cells(LAST_ROW, 7)).ClearContents
-    mForm.Range(mForm.Cells(FIRST_ROW, 10), mForm.Cells(LAST_ROW, 12)).ClearContents
+    mForm.Range(mForm.Cells(FIRST_ROW, 10), mForm.Cells(LAST_ROW, mLastInput)).ClearContents
 End Sub
 
 Private Sub PutRow(ByVal r As Long, ByVal dVal As Variant, ByVal sD As String, ByVal sE As String, ByVal sF As String, ByVal sG As String)

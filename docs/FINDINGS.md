@@ -169,6 +169,34 @@ rows, with 0 wrong: overlaps, back-to-back rows, crossing midnight, different da
 rows, zero-length rows, a blank first time, rows without a date, and three rows on one day.
 Travel and Work results are unchanged (120 random rows, 0 differences). *(L09, L10)*
 
+## Rev2: OVERTIME_FORM_MONTH_YEAR_PROTECTED_rev2
+
+Compared part by part with the previous version and re-run in LibreOffice: 21 hand cases,
+the sample month, K5 (35 entries), the date rule (19 cases), the overlap highlight (19 rows),
+a simulated 2027 and 2028 holiday list, and 180 random rows. No failures.
+
+**What changed**
+
+* **LOCAL / OVERSEAS removed.** Project ID is now in column J and Vessel in K, and the print area is
+  A1:K84. The stress test now finds these columns from the row-9 headings, so it works on both layouts.
+* **Date rule:** now also accepts the 1st of the next month. It is a normal rule that reads K5 directly.
+* **Instructions:** the old instructions sheet was replaced by two sheets, "README!" and "README SHORT!".
+  The file is 1.3 MB.
+* **Protection:** the form is protected with a new password. The engine and holiday sheets are hidden.
+* **Unchanged:** the Power Query (byte for byte), all Travel/Work formulas, the K5 rule, the overlap
+  helper columns and highlight, and the pop-ups.
+
+**Found**
+
+| # | Finding | Check |
+|---|---|---|
+| 1 | **The 1st of next month meets the current-year holiday list.** A DECEMBER claim can now include 1 January, but the holiday list only covers the current year, so New Year's Day is paid at normal rates (0.5 h instead of 2 h + 8 h for a 08:00–18:00 day). | V07, L05 |
+| 2 | **Leftover column L11:L70 is unlocked and has no heading.** Engineers can type there, outside the print area, and nothing uses it. Lock it or clear it. | S04b |
+| 3 | The hidden LOCAL / OVERSEAS list in M9:M10 is no longer used. | S10 |
+| 4 | **Office-hours tests (O) are skipped** until `FORM_PASSWORD` is set to the new password on your own copy of the module. | O00 |
+| 5 | Still open: one pasted text value breaks the TOTAL; pasted 25:00 and negative times are accepted; trips of 24 h or more count as 0; a row with only "From" claims 0 h; overlapping rows are still both paid. | P01–P04, L01–L08 |
+| 6 | Cosmetic: stray drop-downs on the engine sheet; H71 and I71 formatted differently. | S15, S16 |
+
 ## Not yet verified (needs Excel)
 
 * **Live refresh.** Whether the `Web.BrowserContents` refresh succeeds reliably, and its
