@@ -1,12 +1,13 @@
 # Overtime form stress test
 
-A VBA stress test for `OVERTIME_FORM_MONTH_YEAR_PROTECTED_rev2.xlsx`, the Singapore field-service
-overtime claim form (month entry in `K5`, input pop-ups, overlap highlight, no LOCAL / OVERSEAS column) whose public holidays are loaded by the
+A VBA stress test for `OVERTIME_FORM_MONTH_YEAR_rev4.xlsx`, the Singapore field-service overtime
+claim form (month entry in `K5`, input pop-ups, overlap highlight, Project ID / Activity number / Vessel
+columns, no LOCAL / OVERSEAS column) whose public holidays are loaded by the
 Power Query **Holidays** from mom.gov.sg. Microsoft Copilot is used to explain the
 results and to suggest new test cases.
 
 It also runs against the earlier forms (rev 1.2 and the month-entry versions). It finds the
-Project ID, Vessel and LOCAL / OVERSEAS columns from the row-9 headings, so either layout works.
+Project ID, Activity number, Vessel and LOCAL / OVERSEAS columns from the row-9 headings, so any of these layouts works.
 
 **The query is never edited.** Every test runs on a temporary copy of the workbook.
 The copy's query is only refreshed. Its M code and connection string are compared

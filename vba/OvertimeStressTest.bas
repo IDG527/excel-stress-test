@@ -58,7 +58,7 @@ Private Const DEFAULT_Q1 As Long = 480            ' 08:00 in minutes
 Private Const DEFAULT_Q2 As Long = 1050           ' 17:30 in minutes
 Private Const MONTH_CELL As String = "K5"         ' claim month typed by the engineer, e.g. OCTOBER 2026
 Private Const ENGINE_MONTH_CELL As String = "J6"  ' engine cell the date rule reads the claim month from
-Private Const DATE_ALLOWS_NEXT_FIRST As Boolean = True ' rev2: the 1st of the next month is also accepted
+Private Const DATE_ALLOWS_NEXT_FIRST As Boolean = False ' rev2 allowed the 1st of the next month; rev4 does not
 
 ' ---------- output sheets ----------
 Private Const OUT_SUMMARY As String = "ST_Summary"
@@ -111,6 +111,7 @@ Private mPopupCount As Long
 Private mColLocal As Long                 ' LOCAL / OVERSEAS column, 0 when the form has none (rev2)
 Private mColProject As Long               ' Project ID column
 Private mColVessel As Long                ' Vessel name column
+Private mColActivity As Long              ' Activity number column, 0 when the form has none (added in rev4)
 Private mLastInput As Long                ' last input column of the job rows
 
 '==============================================================================
@@ -356,6 +357,7 @@ Private Sub TestStructure()
     If Len(bad) = 0 Then
         LogResult "S07", cat, "Form headings are where the formulas expect them", "PASS", , _
                   "Project ID in " & ColLetter(mColProject) & ", Vessel in " & ColLetter(mColVessel) & _
+                  IIf(mColActivity > 0, ", Activity number in " & ColLetter(mColActivity), "") & _
                   IIf(mColLocal > 0, ", LOCAL / OVERSEAS in " & ColLetter(mColLocal), ", no LOCAL / OVERSEAS column")
     Else
         LogResult "S07", cat, "Form headings are where the formulas expect them", "WARN", , bad, _
@@ -437,12 +439,16 @@ Private Sub TestStructure()
     If mColProject > 0 Then
         If NzStr(mForm.Range(ColRange(mColProject, mColProject)).NumberFormat) <> "@" Then bad = bad & " Project ID=" & NzStr(mForm.Range(ColRange(mColProject, mColProject)).NumberFormat)
     End If
+    If mColActivity > 0 Then
+        If NzStr(mForm.Range(ColRange(mColActivity, mColActivity)).NumberFormat) <> "@" Then bad = bad & " Activity number=" & NzStr(mForm.Range(ColRange(mColActivity, mColActivity)).NumberFormat)
+    End If
     If Len(NzStr(mForm.Range("A11:A70").NumberFormat)) = 0 Then bad = bad & " A=(mixed)"
     If Len(bad) = 0 Then
         LogResult "S13", cat, "Number formats: times hh:mm, Project ID as text", "PASS"
     Else
         LogResult "S13", cat, "Number formats: times hh:mm, Project ID as text", "WARN", "hh:mm / @", bad, _
-                  "A Project ID column that is not Text turns 100084981.010 into 100084981.01."
+                  "An ID column that is not Text changes what is typed: 100084981.010 becomes 100084981.01, " & _
+                  "0010 becomes 10, and a 16+ digit number loses its last digits."
     End If
 
     If NzStr(mForm.Cells(TOTAL_ROW, 8).Formula) = "=SUM(H11:H70)" And _
@@ -1260,6 +1266,17 @@ Private Sub TestRobustness()
     Recalc
     g = mForm.Cells(FIRST_ROW, mColProject).Value
     tot = mForm.Cells(FIRST_ROW, mColVessel).Value
+    If mColActivity > 0 Then
+        mForm.Cells(FIRST_ROW + 1, mColActivity).Value = "0010"
+        mForm.Cells(FIRST_ROW + 2, mColActivity).Value = "1234567890123456789"
+        Recalc
+        LogResult "P08", cat, "Activity number keeps what was typed (0010, 19-digit number)", _
+                  IIf(SameValue(mForm.Cells(FIRST_ROW + 1, mColActivity).Value, "0010") And _
+                      SameValue(mForm.Cells(FIRST_ROW + 2, mColActivity).Value, "1234567890123456789"), "PASS", "WARN"), _
+                  "0010 / 1234567890123456789", ToText(mForm.Cells(FIRST_ROW + 1, mColActivity).Text) & " / " & _
+                  ToText(mForm.Cells(FIRST_ROW + 2, mColActivity).Text), _
+                  "Format the Activity number column as Text (like Project ID) so Excel does not turn entries into numbers."
+    End If
     LogResult "P06", cat, "Project ID keeps trailing zeros; 255-character vessel name kept", _
               IIf(SameValue(g, "100084981.010") And Len(ToText(tot)) = 255, "PASS", "FAIL"), _
               "100084981.010 / 255 chars", ToText(g) & " / " & Len(CStr(tot)) & " chars"
@@ -1298,7 +1315,7 @@ End Sub
 '==============================================================================
 Private Sub TestFuzz(ByVal iterations As Long, ByVal idPrefix As String, ByVal label As String)
     Dim cat As String, it As Long, i As Long, c As Long
-    Dim aA(1 To NROWS, 1 To 1) As Variant, aT(1 To NROWS, 1 To 4) As Variant, aJ(1 To NROWS, 1 To 3) As Variant
+    Dim aA(1 To NROWS, 1 To 1) As Variant, aT(1 To NROWS, 1 To 4) As Variant, aJ(1 To NROWS, 1 To 4) As Variant
     Dim tm(1 To NROWS, 0 To 3) As Long, ds(1 To NROWS) As Double, t(0 To 3) As Long
     Dim v As Variant, tot As Variant, e As OTResult, vessels As Variant
     Dim rowsChecked As Long, rowsBad As Long, totBad As Long, idBad As Long
@@ -1321,6 +1338,7 @@ Private Sub TestFuzz(ByVal iterations As Long, ByVal idPrefix As String, ByVal l
             aJ(i, 1) = IIf(Rnd < 0.8, "LOCAL", "OVERSEAS")
             aJ(i, 2) = "1000" & Format$(Int(Rnd * 100000), "00000") & "." & Format$(Int(Rnd * 1000), "000")
             aJ(i, 3) = vessels(Int(Rnd * (UBound(vessels) + 1)))
+            aJ(i, 4) = "A" & Format$(Int(Rnd * 10000), "0000")
         Next i
 
         t0 = NowMs()
@@ -1383,7 +1401,7 @@ End Sub
 '==============================================================================
 Private Sub TestCapacity()
     Dim cat As String, i As Long, c As Long, d0 As Double, t(0 To 3) As Long, e As OTResult
-    Dim aA(1 To NROWS, 1 To 1) As Variant, aT(1 To NROWS, 1 To 4) As Variant, aJ(1 To NROWS, 1 To 3) As Variant
+    Dim aA(1 To NROWS, 1 To 1) As Variant, aT(1 To NROWS, 1 To 4) As Variant, aJ(1 To NROWS, 1 To 4) As Variant
     Dim v As Variant, tot As Variant, bad As Long, sumT As Double, sumW As Double, ds(1 To NROWS) As Double
     Dim it As Long, t0 As Double, st As Variant
     cat = "Capacity"
@@ -1395,7 +1413,7 @@ Private Sub TestCapacity()
         ds(i) = d0 + i - 1
         aA(i, 1) = CDate(ds(i))
         aT(i, 1) = 0#: aT(i, 2) = 1# / 1440#: aT(i, 3) = 1438# / 1440#: aT(i, 4) = 1439# / 1440#
-        aJ(i, 1) = "OVERSEAS": aJ(i, 2) = "999999999.999": aJ(i, 3) = String$(255, "V")
+        aJ(i, 1) = "OVERSEAS": aJ(i, 2) = "999999999.999": aJ(i, 3) = String$(255, "V"): aJ(i, 4) = String$(50, "9")
     Next i
     mForm.Range(mForm.Cells(FIRST_ROW, 1), mForm.Cells(LAST_ROW, 1)).Value = aA
     mForm.Range(mForm.Cells(FIRST_ROW, 4), mForm.Cells(LAST_ROW, 7)).Value = aT
@@ -2030,23 +2048,25 @@ End Function
 ' Finds Project ID / Vessel / LOCAL-OVERSEAS columns from the headings in row 9 (the column was removed in rev2).
 Private Sub DetectLayout()
     Dim c As Long, h As String
-    mColLocal = 0: mColProject = 0: mColVessel = 0
+    mColLocal = 0: mColProject = 0: mColVessel = 0: mColActivity = 0
     For c = 10 To 13
         h = UCase$(Squash(CStr(mForm.Cells(9, c).Value)))
         If h = "LOCAL / OVERSEAS" Then mColLocal = c
         If h = "PROJECT ID" Then mColProject = c
         If h = "VESSEL NAME" Then mColVessel = c
+        If h = "ACTIVITY NUMBER" Then mColActivity = c
     Next c
     If mColProject = 0 Then mColProject = IIf(mColLocal > 0, mColLocal + 1, 10)
-    If mColVessel = 0 Then mColVessel = mColProject + 1
+    If mColVessel = 0 Then mColVessel = IIf(mColActivity > 0, mColActivity, mColProject) + 1
     mLastInput = mColVessel
     If mColLocal > mLastInput Then mLastInput = mColLocal
+    If mColActivity > mLastInput Then mLastInput = mColActivity
 End Sub
 
 Private Sub WriteJobInfo(ByRef aJ() As Variant)
     Dim i As Long, colArr(1 To NROWS, 1 To 1) As Variant, k As Long, cols As Variant
-    cols = Array(mColLocal, mColProject, mColVessel)
-    For k = 0 To 2
+    cols = Array(mColLocal, mColProject, mColVessel, mColActivity)
+    For k = 0 To 3
         If cols(k) > 0 Then
             For i = 1 To NROWS
                 colArr(i, 1) = aJ(i, k + 1)

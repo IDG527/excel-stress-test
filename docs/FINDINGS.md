@@ -197,6 +197,42 @@ a simulated 2027 and 2028 holiday list, and 180 random rows. No failures.
 | 5 | Still open: one pasted text value breaks the TOTAL; pasted 25:00 and negative times are accepted; trips of 24 h or more count as 0; a row with only "From" claims 0 h; overlapping rows are still both paid. | P01–P04, L01–L08 |
 | 6 | Cosmetic: stray drop-downs on the engine sheet; H71 and I71 formatted differently. | S15, S16 |
 
+## Rev4: OVERTIME_FORM_MONTH_YEAR_rev4
+
+Compared part by part with rev2, and every check was re-run in LibreOffice. The results were
+52 PASS, 15 WARN, 8 INFO and 0 FAIL. The checks covered:
+
+* structure, protection, rules and formulas;
+* 21 hand cases and the sample month;
+* K5 (35 entries), the date rule (19 cases) and the overlap highlight (19 rows);
+* a simulated 2027 and 2028 holiday list;
+* 420 random rows: 180 with the form's office hours, and 60 each with 07:30–16:30, 09:00–18:00,
+  07:00–19:00 and 00:00–23:59.
+
+**What changed**
+
+* **New ACTIVITY NUMBER column (K).** Vessel moved to L, the Project ID heading is now
+  "PROJECT ID", and the print area is A1:L84. The stress test finds all of these from the row-9
+  headings.
+* **Date rule back to the claim month plus the last day of the month before.** The 1st of the
+  next month is rejected again, which removes rev2's "1 January in a December claim" problem. The
+  error message now says a job that runs across the month end is claimed on the later month's form.
+* **Protection:** the engine sheet and both README sheets are now protected as well, all with a
+  password that is not `usethe365`. The holiday sheet is not protected, so the query can still
+  refresh.
+* **Unchanged:** the Power Query (byte for byte), all Travel/Work formulas, the K5 rule, the overlap
+  helper columns and highlight, and the pop-ups. The rev2 leftover L11:L70 is now the Vessel column.
+
+**Found**
+
+| # | Finding | Check |
+|---|---|---|
+| 1 | **ACTIVITY NUMBER is formatted General, not Text.** Excel turns a typed `0010` into `10`, and a number of 16 or more digits loses its last digits. Format K11:K70 as Text, like Project ID. | S13, P08 |
+| 2 | Project ID, Activity number and Vessel have no pop-ups. | V02 |
+| 3 | The file grew from 1.3 MB (rev2) to 4.0 MB, from bigger README pictures. That is still under the 5 MB warning level. | S18 |
+| 4 | Still open: one pasted text value breaks the TOTAL; pasted 25:00 and negative times are accepted; trips of 24 h or more count as 0; a row with only "From" claims 0 h; overlapping rows are still both paid; claims dated in another year get normal rates on holidays. | P01–P04, L01–L08, Y?3 |
+| 5 | Cosmetic: stray drop-downs on the engine sheet; H71 and I71 formatted differently. | S15, S16 |
+
 ## Not yet verified (needs Excel)
 
 * **Live refresh.** Whether the `Web.BrowserContents` refresh succeeds reliably, and its
