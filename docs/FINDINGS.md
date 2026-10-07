@@ -217,8 +217,9 @@ Compared part by part with rev2, and every check was re-run in LibreOffice. The 
 * **Date rule back to the claim month plus the last day of the month before.** The 1st of the
   next month is rejected again, which removes rev2's "1 January in a December claim" problem. The
   error message now says a job that runs across the month end is claimed on the later month's form.
-* **Protection:** the engine sheet and both README sheets are now protected as well, all with a
-  password that is not `usethe365`. The holiday sheet is not protected, so the query can still
+* **Protection:** the engine sheet and both README sheets are now protected as well. The form and
+  engine sheets share the new password (checked against both; it is not stored in this repository).
+  The README sheets use a different password, which the stress test does not need. The holiday sheet is not protected, so the query can still
   refresh.
 * **Unchanged:** the Power Query (byte for byte), all Travel/Work formulas, the K5 rule, the overlap
   helper columns and highlight, and the pop-ups. The rev2 leftover L11:L70 is now the Vessel column.
@@ -228,7 +229,7 @@ Compared part by part with rev2, and every check was re-run in LibreOffice. The 
 | # | Finding | Check |
 |---|---|---|
 | 1 | **ACTIVITY NUMBER is formatted General, not Text.** Excel turns a typed `0010` into `10`, and a number of 16 or more digits loses its last digits. Format K11:K70 as Text, like Project ID. | S13, P08 |
-| 2 | Project ID, Activity number and Vessel have no pop-ups. | V02 |
+| 2 | Project ID, Activity number and Vessel have no pop-ups. **This is intended** (confirmed by the form owner); V02 only reports it as INFO. | V02 |
 | 3 | The file grew from 1.3 MB (rev2) to 4.0 MB, from bigger README pictures. That is still under the 5 MB warning level. | S18 |
 | 4 | Still open: one pasted text value breaks the TOTAL; pasted 25:00 and negative times are accepted; trips of 24 h or more count as 0; a row with only "From" claims 0 h; overlapping rows are still both paid; claims dated in another year get normal rates on holidays. | P01–P04, L01–L08, Y?3 |
 | 5 | Cosmetic: stray drop-downs on the engine sheet; H71 and I71 formatted differently. | S15, S16 |

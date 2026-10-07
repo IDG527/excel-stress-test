@@ -1618,9 +1618,9 @@ Private Sub TestPopups()
             info = "LOCAL / OVERSEAS has its error alert switched off, so anything typed there is accepted. "
         End If
     End If
-    LogResult "V02", cat, "Project ID / Vessel (and LOCAL/OVERSEAS if present) have pop-ups", _
+    LogResult "V02", cat, "Project ID / Activity / Vessel pop-ups (none by design)", _
               IIf(Len(info) > 0, "WARN", IIf(Len(bad) = 0, "PASS", "INFO")), "pop-ups on " & ColRange(10, mLastInput), _
-              IIf(Len(bad) = 0, "all present", "no pop-up on" & bad), info & IIf(Len(bad) = 0, "", "Optional: a pop-up such as 'Project ID as on the job sheet, e.g. 100084981.002'.")
+              IIf(Len(bad) = 0, "all present", "no pop-up on" & bad), info & IIf(Len(bad) = 0, "", "No pop-up on these columns is intended (confirmed by the form owner).")
 
     ' V03 the cells with a rule stop wrong entries and say why
     bad = ""
