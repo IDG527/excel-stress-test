@@ -366,6 +366,7 @@ Private Sub TestStructure()
 
     bad = ""
     If Len(Trim$(CStr(mForm.Range("B5").Value))) = 0 Then bad = bad & " NAME (B5)"
+    If Len(Trim$(CStr(mForm.Range("C77").Value))) = 0 Then bad = bad & " SUBMITTED BY (C77)"
     If Len(Trim$(CStr(mForm.Range("I5").Value))) = 0 Then bad = bad & " ID (I5)"
     If Len(Trim$(CStr(mForm.Range(MONTH_CELL).Value))) = 0 Then
         bad = bad & " MONTH (" & MONTH_CELL & ")"
@@ -373,9 +374,9 @@ Private Sub TestStructure()
         bad = bad & " MONTH (" & MONTH_CELL & ") not in the form 'OCTOBER 2026': '" & mForm.Range(MONTH_CELL).Value & "'"
     End If
     If Len(bad) = 0 Then
-        LogResult "S08", cat, "Claim header filled in (name, ID, month)", "PASS"
+        LogResult "S08", cat, "Claim header filled in (name, ID, month, submitted by)", "PASS"
     Else
-        LogResult "S08", cat, "Claim header filled in (name, ID, month)", "WARN", "filled", "blank:" & bad, _
+        LogResult "S08", cat, "Claim header filled in (name, ID, month, submitted by)", "WARN", "filled", "blank:" & bad, _
                   "The form does not force these fields; a claim can be submitted without them."
     End If
 
@@ -682,6 +683,7 @@ Private Sub TestBaseline(ByRef base As Variant)
     Dim claimMonth As Double, outside As String
     Dim noTimes As String, noDate As String, badJ As String, numK As String, anyTime As Boolean, skip As Boolean
     Dim spanS(1 To NROWS) As Double, spanE(1 To NROWS) As Double, hasSpan(1 To NROWS) As Boolean, overlaps As String
+    Dim rejected As String, nChecked As Long, noInfo As String, singleRows As String, nTimes As Long, cell As Range
     cat = "As-found entries"
     On Error GoTo Boom
 
@@ -777,6 +779,44 @@ Private Sub TestBaseline(ByRef base As Variant)
     If Len(badJ) > 0 Then LogResult "B09", cat, "LOCAL / OVERSEAS values valid", "WARN", "LOCAL or OVERSEAS", Trim$(badJ)
     If Len(numK) > 0 Then LogResult "B10", cat, "Project IDs stored as text", "WARN", "text", "numbers in" & numK, _
                                   "Numeric IDs lose trailing zeros (100084981.010 -> 100084981.01)."
+    ' B12-B14 every saved entry passes the form's own rules; rows with hours have their job details
+    If Len(Trim$(CStr(mForm.Range(MONTH_CELL).Value))) > 0 Then
+        nChecked = nChecked + 1
+        If Not VTrue(ValidOK(mForm.Range(MONTH_CELL))) Then rejected = rejected & " " & MONTH_CELL
+    End If
+    For i = 1 To NROWS
+        nTimes = 0
+        For c = 1 To 7
+            If c = 1 Or c >= 4 Then
+                Set cell = mForm.Cells(FIRST_ROW + i - 1, c)
+                If Not IsEmpty(cell.Value) Then
+                    nChecked = nChecked + 1
+                    If Not IsNull(VProp(cell, "Type")) Then
+                        If Not VTrue(ValidOK(cell)) Then rejected = rejected & " " & cell.Address(False, False)
+                    End If
+                    If c >= 4 Then nTimes = nTimes + 1
+                End If
+            End If
+        Next c
+        If nTimes = 1 Then singleRows = singleRows & " " & (i + 10)
+        If nTimes > 0 Then
+            If IsEmpty(base(i, mColProject)) Or IsEmpty(base(i, mColVessel)) Then
+                noInfo = noInfo & " " & (i + 10)
+            ElseIf mColActivity > 0 Then
+                If IsEmpty(base(i, mColActivity)) Then noInfo = noInfo & " " & (i + 10)
+            End If
+        End If
+    Next i
+    If used > 0 Then
+        LogResult "B12", cat, "Every saved entry passes the form's own rules (month, dates, times)", IIf(Len(rejected) = 0, "PASS", "WARN"), _
+                  nChecked & " entries accepted", IIf(Len(rejected) = 0, nChecked & " entries accepted", "rejected:" & rejected), _
+                  IIf(Len(rejected) = 0, "", "These values could not have been typed; they were pasted or entered before the rule changed.")
+        LogResult "B13", cat, "Every row with hours has Project ID, " & IIf(mColActivity > 0, "Activity number, ", "") & "Vessel", _
+                  IIf(Len(noInfo) = 0, "PASS", "WARN"), "all filled", IIf(Len(noInfo) = 0, "all filled", "missing on rows" & noInfo)
+        LogResult "B14", cat, "No row with a single time (claims 0 h)", IIf(Len(singleRows) = 0, "PASS", "WARN"), "none", _
+                  IIf(Len(singleRows) = 0, "none", "rows" & singleRows), IIf(Len(singleRows) = 0, "", "One time on its own gives 0 hours; the end (or start) time is missing.")
+    End If
+
     overlaps = OverlapList(spanS, spanE, hasSpan)
     If used > 0 Then
         LogResult "B11", cat, "No two rows claim the same hours (overlapping times)", IIf(Len(overlaps) = 0, "PASS", "WARN"), _

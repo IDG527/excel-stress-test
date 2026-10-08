@@ -234,6 +234,46 @@ Compared part by part with rev2, and every check was re-run in LibreOffice. The 
 | 4 | Still open: one pasted text value breaks the TOTAL; pasted 25:00 and negative times are accepted; trips of 24 h or more count as 0; a row with only "From" claims 0 h; overlapping rows are still both paid; claims dated in another year get normal rates on holidays. | P01–P04, L01–L08, Y?3 |
 | 5 | Cosmetic: stray drop-downs on the engine sheet; H71 and I71 formatted differently. | S15, S16 |
 
+## Rev4 filled in: OVERTIME_FORM_MONTH_YEAR_rev4_stress_test
+
+This is rev4 with a sample claim for SEPTEMBER 2026 entered. It has the name, employee ID,
+six job rows with Project ID, Activity number and Vessel, and the submitter. Every check was
+re-run in LibreOffice, including the as-found checks on the saved entries. The results were
+64 PASS, 14 WARN, 8 INFO and 0 FAIL.
+
+**What changed since rev4**
+
+* **ACTIVITY NUMBER (K11:K70) is now formatted as Text.** This fixes rev4's S13/P08 warning.
+* The sample entries were added. The rules, formulas, highlights, helper columns and the query are
+  unchanged (the query is byte for byte the same as the original).
+* **Form protection no longer lets engineers format cells.** Formatting rows is still allowed, and
+  the password is unchanged.
+* The logo on the form moved slightly.
+
+**The saved sample month (as-found checks)**
+
+| Row | Date | Times | Travel | Work |
+|---|---|---|---|---|
+| 11 | Fri 18 Sep | 21:00 → 00:00 | 3 | 0 |
+| 12 | Sat 19 Sep | 00:00 / 01:00 / 06:30 / 09:30 | 4 | 5.5 |
+| 13 | Tue 22 Sep | 06:30 / 08:30 / 11:30 / 12:30 | 1.5 | 0 |
+| 14 | Sat 26 Sep | 16:00 / 20:30 / 22:30 / 00:00 | 6 | 2 |
+| 15 | Sun 27 Sep | 00:00 → 01:00 | 1 | 0 |
+| 16 | Wed 30 Sep | 06:00 / 10:00 / 18:00 / 20:30 | 4.5 | 0.5 |
+| | **Total** | | **20** | **8** (28 h) |
+
+* Every row matches the reference model *(B01, B02)*.
+* All 31 saved entries (K5, dates and times) pass the form's own rules *(B12)*.
+* The dates are all in the claim month and in order *(B03, B05)*.
+* There are no overlaps. Rows 11→12 and 14→15 run back to back and are correctly not flagged *(B11)*.
+* Every row has its job details *(B13)*, no row has a single time *(B14)*, and the IDs are stored as
+  text *(B10)*.
+* The header and sign-off are filled in *(S08)*.
+
+**Still open:** the same 12 behaviour warnings as rev4: pasted text or out-of-range times; 24-hour
+trips; a double midnight crossing; holidays from another year; an incomplete row; overlaps still
+being paid. Also the 2 cosmetic warnings (stray engine drop-downs, total formats).
+
 ## Not yet verified (needs Excel)
 
 * **Live refresh.** Whether the `Web.BrowserContents` refresh succeeds reliably, and its
