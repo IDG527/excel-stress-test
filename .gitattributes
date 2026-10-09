@@ -1,0 +1,4 @@
+# VBA editor imports need Windows line endings - store them as-is
+*.bas -text
+*.cls -text
+*.frm -text
