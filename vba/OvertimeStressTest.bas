@@ -684,6 +684,7 @@ Private Sub TestBaseline(ByRef base As Variant)
     Dim noTimes As String, noDate As String, badJ As String, numK As String, anyTime As Boolean, skip As Boolean
     Dim spanS(1 To NROWS) As Double, spanE(1 To NROWS) As Double, hasSpan(1 To NROWS) As Boolean, overlaps As String
     Dim rejected As String, nChecked As Long, noInfo As String, singleRows As String, nTimes As Long, cell As Range
+    Dim hasRule(1 To 7) As Boolean, noRule As Boolean
     cat = "As-found entries"
     On Error GoTo Boom
 
@@ -784,6 +785,14 @@ Private Sub TestBaseline(ByRef base As Variant)
         nChecked = nChecked + 1
         If Not VTrue(ValidOK(mForm.Range(MONTH_CELL))) Then rejected = rejected & " " & MONTH_CELL
     End If
+    ' a normal paste replaces a cell's rule too, so a filled cell with no rule in a column that has one is flagged
+    For c = 1 To 7
+        If c = 1 Or c >= 4 Then
+            For i = 1 To NROWS
+                If Not IsNull(VProp(mForm.Cells(FIRST_ROW + i - 1, c), "Type")) Then hasRule(c) = True: Exit For
+            Next i
+        End If
+    Next c
     For i = 1 To NROWS
         nTimes = 0
         For c = 1 To 7
@@ -793,6 +802,9 @@ Private Sub TestBaseline(ByRef base As Variant)
                     nChecked = nChecked + 1
                     If Not IsNull(VProp(cell, "Type")) Then
                         If Not VTrue(ValidOK(cell)) Then rejected = rejected & " " & cell.Address(False, False)
+                    ElseIf hasRule(c) Then
+                        rejected = rejected & " " & cell.Address(False, False) & " (rule missing)"
+                        noRule = True
                     End If
                     If c >= 4 Then nTimes = nTimes + 1
                 End If
@@ -810,7 +822,8 @@ Private Sub TestBaseline(ByRef base As Variant)
     If used > 0 Then
         LogResult "B12", cat, "Every saved entry passes the form's own rules (month, dates, times)", IIf(Len(rejected) = 0, "PASS", "WARN"), _
                   nChecked & " entries accepted", IIf(Len(rejected) = 0, nChecked & " entries accepted", "rejected:" & rejected), _
-                  IIf(Len(rejected) = 0, "", "These values could not have been typed; they were pasted or entered before the rule changed.")
+                  IIf(Len(rejected) = 0, "", "These values could not have been typed; they were pasted or entered before the rule changed." & _
+                      IIf(noRule, " '(rule missing)' means a paste replaced the cell's rule, so Excel no longer checks it.", ""))
         LogResult "B13", cat, "Every row with hours has Project ID, " & IIf(mColActivity > 0, "Activity number, ", "") & "Vessel", _
                   IIf(Len(noInfo) = 0, "PASS", "WARN"), "all filled", IIf(Len(noInfo) = 0, "all filled", "missing on rows" & noInfo)
         LogResult "B14", cat, "No row with a single time (claims 0 h)", IIf(Len(singleRows) = 0, "PASS", "WARN"), "none", _

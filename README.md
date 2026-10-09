@@ -69,7 +69,7 @@ Every row of the form and every part of the file is covered:
 | S01–S20 | Structure | The four sheets are present (the holiday sheet may be hidden). The engine sheet is hidden and the form is protected. Input cells are unlocked and output cells locked. Office hours `Q1`/`Q2` are valid. The headings are in place. Name, ID, month and approvers are filled in. The LOCAL/OVERSEAS list points at `M9:M10`. Data validation, conditional formatting and number formats are present (Project ID must be Text). The total formulas are correct. There are no stray validations on the hidden sheet. The print area and file size are sensible. "Submitted By:" is at A77 and C77 is an input. Full-recalculation mode is reported. |
 | F01–F07 | Formulas | All 540 engine formulas are consistent across rows 11–70, and all 240 form cells link to the engine. There is no `#REF!` inside any formula. Office hours and the `Holidays_1[Date]` lookup are wired in. There are no error values in the file as saved (F07) or after a full recalculation (F06). |
 | Q01–Q06, Q98, Q99 | Power Query (read only) | The query, its connection and the table binding exist. The M code fingerprint is recorded. The query covers only the current year and depends on the live web page. The query and the original file are unchanged at the end. |
-| B01–B14 | As-found entries | The rows already in the file calculate correctly. Also checks: dates all in the claim month typed in `K5` (or the day before it) and in the holiday year, chronological order, rows with times but no date, valid LOCAL/OVERSEAS values, Project IDs stored as text, no two rows claiming the same hours (B11: overlapping times, including across midnight), every saved month, date and time passing the form's own rules (B12), every row with hours having its Project ID / Activity number / Vessel (B13), and no row with a single time (B14). |
+| B01–B14 | As-found entries | The rows already in the file calculate correctly. Also checks: dates all in the claim month typed in `K5` (or the day before it) and in the holiday year, chronological order, rows with times but no date, valid LOCAL/OVERSEAS values, Project IDs stored as text, no two rows claiming the same hours (B11: overlapping times, including across midnight), every saved month, date and time passing the form's own rules, including date and time cells whose rule a paste removed (B12), every row with hours having its Project ID / Activity number / Vessel (B13), and no row with a single time (B14). |
 | R01–R04 | Refresh stress | 10 refreshes in a row (configurable): success rate, identical data every time, timing statistics, and the form's public-holiday column following the refreshed table each time. |
 | H01–H15 | Holiday table | Columns, row count, real dates, current year, Day matching Date, allowed Types, and clean names. In-lieu Mondays follow Sunday holidays. Rows are sorted with no duplicates. Fixed and moving holidays are present, and no stale rows are left under the table. Every holiday is flagged **Y** on the form and the day after it **N**. |
 | K01–K22 | Known answers | 21 hand-checked cases with fixed expected hours: overnight shifts, office-hour boundaries (07:59–08:01, 17:30), midnight crossings, blank middle columns, weekday public holidays and 23:59 days. Also the sample month's totals (15.5 / 7.5 / 23). |
@@ -132,6 +132,15 @@ A few things to know:
 * Copilot only explains. **PASS/FAIL always comes from the VBA checks.**
 
 See `docs/COPILOT_PROMPTS.md` for more prompts.
+
+## Checking a submitted form
+
+Overlapping rows (L08) and pasted values (P01–P04) are checked by hand rather than blocked by the
+form. Before signing "Verified by", run `RunOvertimeStressTest` on the submitted form and confirm
+that **B11** (no overlapping rows) and **B12** (every saved entry passes the form's rules) are PASS.
+If either is WARN, its details name the rows or cells to send back to the engineer. The other
+remaining warnings are accepted as they are. See *Decisions on the remaining warnings* in
+`docs/FINDINGS.md`.
 
 ## Notes
 

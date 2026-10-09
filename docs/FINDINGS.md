@@ -272,7 +272,36 @@ re-run in LibreOffice, including the as-found checks on the saved entries. The r
 
 **Still open:** the same 12 behaviour warnings as rev4: pasted text or out-of-range times; 24-hour
 trips; a double midnight crossing; holidays from another year; an incomplete row; overlaps still
-being paid. Also the 2 cosmetic warnings (stray engine drop-downs, total formats).
+being paid. Also the 2 cosmetic warnings (stray engine drop-downs, total formats). The form owner
+has since decided how to handle each one (next section).
+
+## Decisions on the remaining warnings
+
+The form owner reviewed the 14 warnings from the rev4 filled-in run. No form changes will be made
+for them. The stress test still reports them as WARN, so expect them in `ST_Summary` on every run.
+
+| Warning | Checks | Decision |
+|---|---|---|
+| Holidays from another year get normal rates, e.g. a December claim done after the January refresh misses 25 Dec | L04, L05, Y23, Y33 | Accepted. A fix needs a query change, and the query stays as it is. |
+| Overlapping rows are both paid (the red highlight only shows them) | L08 | Checked by hand when the claim is verified (below). |
+| Pasted values skip the rules: text, dates as text, 25:00, negative times | P01–P04 | Checked by hand when the claim is verified (below). |
+| A 24-hour trip counts as 0 h | L01 | Accepted. |
+| A row that crosses midnight twice is calculated wrong | L02 | Accepted. |
+| A row with only "From" claims 0 h and nothing warns the engineer | L06 | Accepted. |
+| Stray drop-downs on the engine sheet; H71 and I71 formatted differently | S15, S16 | Accepted (cosmetic). |
+
+**Manual check before signing "Verified by" (K77)**
+
+1. Run `RunOvertimeStressTest` on the submitted form. It works on a temporary copy, so the
+   submitted file is not changed.
+2. In `ST_Results`, check **B11** (no overlapping rows) and **B12** (every saved entry passes the
+   form's rules). Both must be PASS.
+3. If B11 is WARN, its details name the overlapping rows. They are also highlighted red on the form.
+   Return the claim to the engineer to correct them.
+4. If B12 is WARN, its details list each cell that breaks the rules. Most pasted values look normal on the
+   form, so this check is the reliable way to find them. A normal paste can also replace a cell's
+   rule, so Excel stops checking that cell; B12 lists such cells as "(rule missing)". Return the
+   claim to the engineer to correct them.
 
 ## Not yet verified (needs Excel)
 
